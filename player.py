@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 import time
 import vlc
@@ -19,10 +18,12 @@ current_status = {"playing": False, "track_or_folder": None}
 
 # Extended info for albums:
 current_album_name = None         # Stores the current album folder name (if album playback)
+current_album_folder = None       # Stores the full folder path for the album.
 current_album_tracks = []         # List of audio file paths in the current album
 
-# Global flag to decide if we stop playback on USB removal.
-stop_on_unmount = True  # default True
+# Global flags for player settings:
+stop_on_unmount = True      # If True, when PLAY_CARD is unmounted, playback stops.
+repeat_playback = True     # If True, the album/track repeats after finishing.
 
 # Initialize VLC
 instance = vlc.Instance()
@@ -41,20 +42,10 @@ def usb_is_mounted(mount_path):
     if not os.path.ismount(mount_path):
         return False
     try:
-        _ = os.listdir(mount_path)
+        os.listdir(mount_path)
         return True
     except OSError:
         return False
-
-def stop_playback():
-    """Stop any ongoing playback and clear status."""
-    global current_album_name, current_album_tracks
-    media_list_player.stop()
-    current_status["playing"] = False
-    current_status["track_or_folder"] = None
-    current_album_name = None
-    current_album_tracks = []
-    log_message("Stopped playback.")
 
 def format_track_name(filename):
     """
@@ -70,48 +61,51 @@ def play_tracks_from_folder(folder_path):
     Gather all audio files from 'folder_path' (including subfolders)
     and play them in sequence. Also store album info for UI.
     """
-    global current_album_name, current_album_tracks
-
+    global current_album_name, current_album_folder, current_album_tracks
     audio_files = []
-    # Escape the folder path so special characters are treated literally.
+    # Escape folder path so special characters (like brackets) are literal.
     escaped_folder = glob.escape(folder_path)
     patterns = ["*.mp3", "*.MP3", "*.wav", "*.WAV", "*.flac", "*.FLAC"]
     for pattern in patterns:
         search_pattern = os.path.join(escaped_folder, "**", pattern)
         found = glob.glob(search_pattern, recursive=True)
         audio_files += found
-
     log_message(f"Found audio files: {audio_files}")
-
     if not audio_files:
         log_message(f"No audio files found in {folder_path} or its subfolders.")
         return
-
-    # Store album info for UI
     current_album_name = os.path.basename(folder_path)
+    current_album_folder = folder_path  # Save the folder path.
     current_album_tracks = audio_files
-
-    # Create and play media list for VLC
     media_list = instance.media_list_new()
     for audio_file in audio_files:
         media = instance.media_new(audio_file)
         media_list.add_media(media)
-
     media_list_player.set_media_list(media_list)
+    if repeat_playback:
+        media_list_player.set_playback_mode(vlc.PlaybackMode.loop)
+    else:
+        media_list_player.set_playback_mode(vlc.PlaybackMode.default)
     media_list_player.play()
-
     current_status["playing"] = True
     current_status["track_or_folder"] = os.path.basename(folder_path)
     log_message(f"Playing folder (recursive): {folder_path}")
 
 def play_single_track(track_path):
-    """Play a single audio file by its full path."""
-    global current_album_name, current_album_tracks
+    """Play a single audio file by its full path using a media list with one item."""
+    global current_album_name, current_album_folder, current_album_tracks
     current_album_name = None
+    current_album_folder = None
     current_album_tracks = []
+    media_list = instance.media_list_new()
     media = instance.media_new(track_path)
-    media_player.set_media(media)
-    media_player.play()
+    media_list.add_media(media)
+    media_list_player.set_media_list(media_list)
+    if repeat_playback:
+        media_list_player.set_playback_mode(vlc.PlaybackMode.loop)
+    else:
+        media_list_player.set_playback_mode(vlc.PlaybackMode.default)
+    media_list_player.play()
     current_status["playing"] = True
     current_status["track_or_folder"] = os.path.basename(track_path)
     log_message(f"Playing single track: {track_path}")
@@ -146,26 +140,35 @@ def get_current_media_title():
         return format_track_name(path)
     return None
 
+def stop_playback():
+    """
+    Stop playback and clear the current status.
+    """
+    global current_album_name, current_album_folder, current_album_tracks
+    media_list_player.stop()
+    current_status["playing"] = False
+    current_status["track_or_folder"] = None
+    current_album_name = None
+    current_album_folder = None
+    current_album_tracks = []
+    log_message("Stopped playback.")
+
 def main_loop():
     """
-    Monitors the CONTROL_USB_MOUNT. When mounted, reads 'playMusic.txt'
-    and tries to play an album or track. On unmount, optionally stops playback
-    if 'stop_on_unmount' is True.
+    Monitor the CONTROL_USB_MOUNT. When the USB is mounted, read the control file
+    and start new playback. When the USB is unmounted, stop playback (if stop_on_unmount is True).
     """
     previously_mounted = False
-
     while True:
         if usb_is_mounted(CONTROL_USB_MOUNT):
             if not previously_mounted:
                 log_message("Control USB mounted.")
                 previously_mounted = True
-
                 control_file_path = os.path.join(CONTROL_USB_MOUNT, CONTROL_FILE_NAME)
                 if os.path.isfile(control_file_path):
                     with open(control_file_path, "r") as f:
                         request_line = f.read().strip()
                     log_message(f"Requested line: {request_line}")
-
                     if request_line.startswith("Album:"):
                         album_name = request_line.replace("Album:", "").strip()
                         log_message(f"Album requested: {album_name}")
@@ -175,7 +178,6 @@ def main_loop():
                             play_tracks_from_folder(target_folder)
                         else:
                             log_message(f"No matching album folder named '{album_name}' found.")
-
                     elif request_line.startswith("Track:"):
                         track_name = request_line.replace("Track:", "").strip()
                         log_message(f"Track requested: {track_name}")
@@ -190,10 +192,7 @@ def main_loop():
                         else:
                             log_message(f"No matching track named '{track_name}' found in {MUSIC_USB_MOUNT}.")
                     else:
-                        log_message(
-                            "Error: playMusic.txt not in valid format. "
-                            "Use 'Album: <folder>' or 'Track: <filename>'."
-                        )
+                        log_message("Error: playMusic.txt not in valid format. Use 'Album: <folder>' or 'Track: <filename>'.")
                 else:
                     log_message(f"{CONTROL_FILE_NAME} not found on Control USB.")
         else:
@@ -217,20 +216,24 @@ def index():
       - "Currently Playing:" information:
           - If an album is playing, display the album name.
           - The current track playing in VLC.
+          - A control button for toggling Repeat Playback (under the album/track info).
       - "List of tracks in folder:" if an album is playing.
-      - A button to toggle whether we stop on USB unmount.
+      - At the bottom, a control button for toggling Stop On Unmount.
       - Log messages.
     """
     current_vlc_track = get_current_media_title()
-
     album_tracks = []
     if current_album_name and current_album_tracks:
         album_tracks = [format_track_name(track) for track in current_album_tracks]
-
     html = """
     <html>
     <head>
         <title>Raspberry Pi Music Player</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h2 { margin-bottom: 5px; }
+            .control { margin-bottom: 15px; }
+        </style>
     </head>
     <body>
         <h1>Music Player Status</h1>
@@ -244,13 +247,11 @@ def index():
         {% else %}
             <p>Nothing playing</p>
         {% endif %}
-        
-        <p>Stop On Unmount: <strong>{% if stop_on_unmount %}Enabled{% else %}Disabled{% endif %}</strong></p>
-        
-        <!-- Form to toggle stop_on_unmount -->
-        <form method="POST" action="/toggle_stop_on_unmount">
-            <button type="submit">Toggle Stop On Unmount</button>
-        </form>
+        <div class="control">
+            <form method="POST" action="/toggle_repeat_playback">
+                <button type="submit">Toggle Repeat Playback (Currently: {% if repeat_playback %}Enabled{% else %}Disabled{% endif %})</button>
+            </form>
+        </div>
         
         {% if album_tracks %}
             <h2>List of tracks in folder:</h2>
@@ -260,6 +261,12 @@ def index():
             {% endfor %}
             </ul>
         {% endif %}
+        
+        <div class="control">
+            <form method="POST" action="/toggle_stop_on_unmount">
+                <button type="submit">Toggle Stop On Unmount (Currently: {% if stop_on_unmount %}Enabled{% else %}Disabled{% endif %})</button>
+            </form>
+        </div>
         
         <hr>
         <h3>Log Messages (most recent last)</h3>
@@ -277,7 +284,8 @@ def index():
         current_vlc_track=current_vlc_track,
         album_tracks=album_tracks,
         logs=log_messages[-50:],
-        stop_on_unmount=stop_on_unmount
+        stop_on_unmount=stop_on_unmount,
+        repeat_playback=repeat_playback
     )
 
 @app.route('/toggle_stop_on_unmount', methods=['POST'])
@@ -287,8 +295,14 @@ def toggle_stop_on_unmount():
     log_message(f"stop_on_unmount toggled to {stop_on_unmount}")
     return redirect(url_for('index'))
 
+@app.route('/toggle_repeat_playback', methods=['POST'])
+def toggle_repeat_playback():
+    global repeat_playback
+    repeat_playback = not repeat_playback
+    log_message(f"repeat_playback toggled to {repeat_playback}")
+    return redirect(url_for('index'))
+
 def start_flask_app():
-    """Run Flask in its own thread."""
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
