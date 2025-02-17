@@ -16,6 +16,9 @@ CONTROL_FILE_NAME = "playMusic.txt"
 log_messages = []
 current_status = {"playing": False, "track_or_folder": None}
 
+# Global variable to store the currently playing single track's path.
+current_track_path = None
+
 # Extended info for albums:
 current_album_name = None         # Stores the current album folder name (if album playback)
 current_album_folder = None       # Stores the full folder path for the album.
@@ -92,19 +95,22 @@ def play_tracks_from_folder(folder_path):
     log_message(f"Playing folder (recursive): {folder_path}")
 
 def play_single_track(track_path):
-    """Play a single audio file by its full path using a media list with one item."""
-    global current_album_name, current_album_folder, current_album_tracks
+    global current_album_name, current_album_folder, current_album_tracks, current_track_path
     current_album_name = None
     current_album_folder = None
     current_album_tracks = []
+    current_track_path = track_path  # Store the single track path.
     media_list = instance.media_list_new()
     media = instance.media_new(track_path)
-    media_list.add_media(media)
-    media_list_player.set_media_list(media_list)
     if repeat_playback:
+        # Duplicate the track so the playlist contains more than one item.
+        media_list.add_media(media)
+        media_list.add_media(media)
         media_list_player.set_playback_mode(vlc.PlaybackMode.loop)
     else:
+        media_list.add_media(media)
         media_list_player.set_playback_mode(vlc.PlaybackMode.default)
+    media_list_player.set_media_list(media_list)
     media_list_player.play()
     current_status["playing"] = True
     current_status["track_or_folder"] = os.path.basename(track_path)
@@ -247,11 +253,7 @@ def index():
         {% else %}
             <p>Nothing playing</p>
         {% endif %}
-        <div class="control">
-            <form method="POST" action="/toggle_repeat_playback">
-                <button type="submit">Toggle Repeat Playback (Currently: {% if repeat_playback %}Enabled{% else %}Disabled{% endif %})</button>
-            </form>
-        </div>
+        
         
         {% if album_tracks %}
             <h2>List of tracks in folder:</h2>
@@ -261,6 +263,12 @@ def index():
             {% endfor %}
             </ul>
         {% endif %}
+
+        <div class="control">
+            <form method="POST" action="/toggle_repeat_playback">
+                <button type="submit">Toggle Repeat Playback (Currently: {% if repeat_playback %}Enabled{% else %}Disabled{% endif %})</button>
+            </form>
+        </div>
         
         <div class="control">
             <form method="POST" action="/toggle_stop_on_unmount">
@@ -300,6 +308,11 @@ def toggle_repeat_playback():
     global repeat_playback
     repeat_playback = not repeat_playback
     log_message(f"repeat_playback toggled to {repeat_playback}")
+    # Simply update the playback mode on the running media list:
+    if repeat_playback:
+        media_list_player.set_playback_mode(vlc.PlaybackMode.loop)
+    else:
+        media_list_player.set_playback_mode(vlc.PlaybackMode.default)
     return redirect(url_for('index'))
 
 def start_flask_app():
