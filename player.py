@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+#player.py
+
 import os
 import time
 import vlc
@@ -6,11 +8,34 @@ import glob
 import threading
 from flask import Flask, render_template_string, request, redirect, url_for
 from urllib.parse import unquote
+import configparser
 
 # ------------- CONFIG -------------
-MUSIC_USB_MOUNT = "/media/pi/MUSIC"
-CONTROL_USB_MOUNT = "/media/pi/PLAY_CARD"
-CONTROL_FILE_NAME = "playMusic.txt"
+def load_config():
+    config = configparser.ConfigParser()
+    config['DEFAULT'] = {
+        'MUSIC_USB_MOUNT': '/media/pi/MUSIC',
+        'CONTROL_USB_MOUNT': '/media/pi/PLAY_CARD',
+        'CONTROL_FILE_NAME': 'playMusic.txt',
+        'WEB_PORT': '5000',
+        'DEFAULT_VOLUME': '70'
+    }
+    
+    if os.path.exists('config.ini'):
+        config.read('config.ini')
+    else:
+        with open('config.ini', 'w') as f:
+            config.write(f)
+    
+    return config['DEFAULT']
+
+# Then use the config values
+config = load_config()
+MUSIC_USB_MOUNT = config['MUSIC_USB_MOUNT']
+CONTROL_USB_MOUNT = config['CONTROL_USB_MOUNT']
+CONTROL_FILE_NAME = config['CONTROL_FILE_NAME']
+WEB_PORT = int(config['WEB_PORT'])
+DEFAULT_VOLUME = int(config['DEFAULT_VOLUME'])
 
 # Global log variable
 log_messages = []
@@ -44,6 +69,11 @@ def format_track_name(filename):
 
 def find_album_folder(album_name):
     """Recursively search MUSIC_USB_MOUNT for a folder whose name starts with album_name."""
+    # Check if MUSIC_USB_MOUNT exists first
+    if not usb_is_mounted(MUSIC_USB_MOUNT):
+        log_message(f"Music USB not mounted at {MUSIC_USB_MOUNT}")
+        return None
+        
     escaped_album = f"{glob.escape(album_name)}*"
     pattern = os.path.join(MUSIC_USB_MOUNT, "**", escaped_album)
     matching_dirs = glob.glob(pattern, recursive=True)
@@ -62,6 +92,8 @@ class Player:
         self.media_list_player = self.instance.media_list_player_new()
         self.media_player = self.instance.media_player_new()
         self.media_list_player.set_media_player(self.media_player)
+        self.volume = DEFAULT_VOLUME  # Use volume from config
+        self.media_player.audio_set_volume(self.volume)
     
     def is_active(self):
         """Return True if VLC state is Playing or Paused."""
@@ -69,17 +101,23 @@ class Player:
         return state in (vlc.State.Playing, vlc.State.Paused)
     
     def play_album(self, folder_path):
+        # More efficient file search - avoid multiple glob operations
+        audio_extensions = [".mp3", ".MP3", ".wav", ".WAV", ".flac", ".FLAC"]
         audio_files = []
-        escaped_folder = glob.escape(folder_path)
-        patterns = ["*.mp3", "*.MP3", "*.wav", "*.WAV", "*.flac", "*.FLAC"]
-        for pattern in patterns:
-            search_pattern = os.path.join(escaped_folder, "**", pattern)
-            found = glob.glob(search_pattern, recursive=True)
-            audio_files += found
-        log_message(f"Found audio files: {audio_files}")
+        
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                if any(file.endswith(ext) for ext in audio_extensions):
+                    audio_files.append(os.path.join(root, file))
+        
+        # Sort files to ensure consistent playback order
+        audio_files.sort()
+        
+        log_message(f"Found {len(audio_files)} audio files")
         if not audio_files:
             log_message(f"No audio files found in {folder_path} or its subfolders.")
             return
+        
         self.current_album = os.path.basename(folder_path)
         self.current_album_folder = folder_path
         self.current_album_tracks = audio_files
@@ -154,6 +192,44 @@ class Player:
             return format_track_name(path)
         return None
 
+    def get_playback_info(self):
+        """Return current playback position and length in seconds"""
+        if self.is_active():
+            length = self.media_player.get_length() / 1000  # ms to seconds
+            position = self.media_player.get_position() * length
+            return {
+                'position': position,
+                'length': length,
+                'position_percent': self.media_player.get_position() * 100,
+                'position_formatted': self.format_time(position),
+                'length_formatted': self.format_time(length)
+            }
+        return {
+            'position': 0, 
+            'length': 0, 
+            'position_percent': 0,
+            'position_formatted': '0:00',
+            'length_formatted': '0:00'
+        }
+    
+    def format_time(self, seconds):
+        """Format seconds as mm:ss"""
+        minutes = int(seconds // 60)
+        seconds = int(seconds % 60)
+        return f"{minutes}:{seconds:02d}"
+
+    def get_volume(self):
+        """Get current volume level"""
+        return self.volume
+
+    def set_volume(self, volume):
+        """Set volume level (0-100)"""
+        if 0 <= volume <= 100:
+            self.volume = volume
+            self.media_player.audio_set_volume(volume)
+            return True
+        return False
+
 # Global Player instance
 player = Player()
 
@@ -216,10 +292,12 @@ def index():
     album_tracks = []
     if player.current_album and player.current_album_tracks:
         album_tracks = [format_track_name(track) for track in player.current_album_tracks]
+    playback_info = player.get_playback_info()
     html = """
     <html>
     <head>
         <title>Raspberry Pi Music Player</title>
+        <meta http-equiv="refresh" content="10">
         <style>
             body { font-family: Arial, sans-serif; margin: 20px; }
             h2 { margin-bottom: 5px; }
@@ -250,6 +328,19 @@ def index():
             <form method="POST" action="/prev_track">
                 <button type="submit">Previous Track</button>
             </form>
+            <form method="POST" action="/set_volume/0">
+                <button type="submit">Mute</button>
+            </form>
+            <form method="POST" action="/set_volume/30">
+                <button type="submit">Low</button>
+            </form>
+            <form method="POST" action="/set_volume/70">
+                <button type="submit">Medium</button>
+            </form>
+            <form method="POST" action="/set_volume/100">
+                <button type="submit">High</button>
+            </form>
+            <span>Current Volume: {{ player_volume }}%</span>
         </div>
         
         {% if album_tracks %}
@@ -283,7 +374,9 @@ def index():
         current_vlc_track=current_vlc_track,
         album_tracks=album_tracks,
         logs=log_messages[-50:],
-        repeat_playback=repeat_playback
+        repeat_playback=repeat_playback,
+        player_volume=player.get_volume(),
+        playback_info=playback_info
     )
 
 @app.route('/toggle_repeat_playback', methods=['POST'])
@@ -322,8 +415,14 @@ def prev_track():
         log_message("Previous track ignored: No PLAY_CARD present.")
     return redirect(url_for('index'))
 
+@app.route('/set_volume/<int:volume>', methods=['POST'])
+def set_volume(volume):
+    if player.set_volume(volume):
+        log_message(f"Volume set to {volume}%")
+    return redirect(url_for('index'))
+
 def start_flask_app():
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=WEB_PORT, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=start_flask_app, daemon=True)
