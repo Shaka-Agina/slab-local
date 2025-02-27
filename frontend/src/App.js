@@ -23,7 +23,8 @@ import {
   ScrollArea,
   Card,
   Center,
-  MantineProvider
+  MantineProvider,
+  Drawer
 } from '@mantine/core';
 import {
   IconPlayerPlay,
@@ -36,7 +37,8 @@ import {
   IconMusic,
   IconHistory,
   IconList,
-  IconAlbum
+  IconAlbum,
+  IconChevronUp
 } from '@tabler/icons-react';
 import { theme } from './theme';
 
@@ -57,6 +59,9 @@ function App() {
     position: 0,
     length: 0
   });
+  
+  // State for log drawer
+  const [logsDrawerOpen, setLogsDrawerOpen] = useState(false);
   
   const fetchPlayerState = async () => {
     try {
@@ -98,6 +103,179 @@ function App() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
+  // Player controls component that will be docked at the bottom
+  const PlayerControls = () => (
+    <Paper 
+      shadow="sm" 
+      p={{ base: 'md', md: 'md' }}
+      withBorder={false}
+      style={{
+        background: mantineTheme.colors.dark[7],
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+      }}
+    >
+      <Stack spacing={{ base: 'xs', md: 'sm' }} align="center">
+        {/* Progress bar with times on either end */}
+        <Box style={{ width: '100%', maxWidth: '800px' }}>
+          <Progress 
+            value={(playerState.position / playerState.length) * 100 || 0} 
+            size="sm" 
+            radius="xl"
+            color="orange"
+          />
+          <Flex justify="space-between" mt={5}>
+            <Text size="xs" c="white">{formatTime(playerState.position)}</Text>
+            <Text size="xs" c="white">{formatTime(playerState.length)}</Text>
+          </Flex>
+        </Box>
+        
+        <Flex 
+          justify="space-between" 
+          align="center" 
+          style={{ width: '100%', maxWidth: '800px' }}
+          direction={{ base: 'column', sm: 'row' }}
+          gap={{ base: 'xs', sm: 'md' }}
+        >
+          {/* Track info on the left - hidden on very small screens */}
+          <Box style={{ flex: 1, maxWidth: '33%' }} display={{ base: 'none', sm: 'block' }}>
+            <Flex 
+              align="center" 
+              gap="md" 
+              style={{ justifyContent: 'flex-start' }}
+            >
+              <Box w={50} h={50} style={{ minWidth: 50 }}>
+                {playerState.albumImage ? (
+                  <Image
+                    src={playerState.albumImage}
+                    height={50}
+                    width={50}
+                    alt="Album thumbnail"
+                    radius="sm"
+                  />
+                ) : (
+                  <Center h={50} bg={mantineTheme.colors.dark[5]} style={{ borderRadius: '4px' }}>
+                    <IconAlbum size={30} color={mantineTheme.colors.gray[2]} />
+                  </Center>
+                )}
+              </Box>
+              <Box>
+                <Text size="sm" weight={500} lineClamp={1} c="white">
+                  {playerState.currentTrack || 'No track playing'}
+                </Text>
+                <Text size="xs" c="dimmed" lineClamp={1}>
+                  {playerState.currentAlbum || 'No album'}
+                </Text>
+              </Box>
+            </Flex>
+          </Box>
+          
+          {/* Playback controls in the center */}
+          <Box 
+            style={{ 
+              flex: 1, 
+              display: 'flex', 
+              justifyContent: 'center', 
+              minWidth: { base: '100%', sm: '33%' },
+              padding: { base: '10px 0', sm: 0 }
+            }}
+          >
+            <Group position="center" spacing={{ base: 'xl', sm: 'md' }}>
+              <ActionIcon 
+                variant="subtle" 
+                color="orange" 
+                size={{ base: 'lg', sm: 'md' }}
+                onClick={() => handleAction('prev_track')}
+                sx={{ color: '#ff922b' }}
+              >
+                <IconPlayerTrackPrev color="#ff922b" stroke={2} style={{ width: rem(24), height: rem(24) }} />
+              </ActionIcon>
+              
+              <ActionIcon 
+                variant="filled" 
+                color="orange" 
+                size={{ base: 'xl', sm: 'lg' }}
+                radius="xl"
+                onClick={() => handleAction('toggle_play_pause')}
+              >
+                {playerState.isPlaying ? 
+                  <IconPlayerPause color="white" stroke={2} style={{ width: rem(30), height: rem(30) }} /> : 
+                  <IconPlayerPlay color="white" stroke={2} style={{ width: rem(30), height: rem(30) }} />
+                }
+              </ActionIcon>
+              
+              <ActionIcon 
+                variant="subtle" 
+                color="orange" 
+                size={{ base: 'lg', sm: 'md' }}
+                onClick={() => handleAction('next_track')}
+                sx={{ color: '#ff922b' }}
+              >
+                <IconPlayerTrackNext color="#ff922b" stroke={2} style={{ width: rem(24), height: rem(24) }} />
+              </ActionIcon>
+              
+              <ActionIcon 
+                variant={playerState.repeatPlayback ? "filled" : "subtle"}
+                color="orange" 
+                size={{ base: 'lg', sm: 'md' }}
+                onClick={() => handleAction('toggle_repeat_playback')}
+                sx={{ color: playerState.repeatPlayback ? 'white' : '#ff922b' }}
+              >
+                <IconRepeat color={playerState.repeatPlayback ? "white" : "#ff922b"} stroke={2} style={{ width: rem(24), height: rem(24) }} />
+              </ActionIcon>
+            </Group>
+          </Box>
+          
+          {/* Right side controls - desktop only */}
+          <Box style={{ flex: 1, maxWidth: '33%', display: 'flex', justifyContent: 'flex-end' }} display={{ base: 'none', sm: 'flex' }}>
+            <Flex 
+              align="center" 
+              gap="md" 
+            >
+              {/* Volume controls */}
+              <Group spacing="xs">
+                <ActionIcon 
+                  variant="subtle" 
+                  color="orange"
+                  onClick={() => handleAction('set_volume', playerState.volume > 0 ? 0 : 70)}
+                  sx={{ color: '#ff922b' }}
+                >
+                  {playerState.volume > 0 ? 
+                    <IconVolume color="#ff922b" stroke={2} style={{ width: rem(18), height: rem(18) }} /> : 
+                    <IconVolumeOff color="#ff922b" stroke={2} style={{ width: rem(18), height: rem(18) }} />
+                  }
+                </ActionIcon>
+                
+                <Slider
+                  style={{ width: '100px' }}
+                  value={playerState.volume}
+                  onChange={(value) => handleAction('set_volume', value)}
+                  size="sm"
+                  radius="xl"
+                  label={null}
+                  color="orange"
+                />
+              </Group>
+              
+              {/* Logs button - desktop only */}
+              <ActionIcon 
+                variant="subtle" 
+                color="gray" 
+                onClick={() => setLogsDrawerOpen(true)}
+                title="Show logs"
+              >
+                <IconChevronUp style={{ width: rem(18), height: rem(18) }} />
+              </ActionIcon>
+            </Flex>
+          </Box>
+        </Flex>
+      </Stack>
+    </Paper>
+  );
+  
   return (
     <MantineProvider theme={{ ...theme, colorScheme }} withGlobalStyles withNormalizeCSS>
       <AppShell
@@ -106,13 +284,14 @@ function App() {
         styles={{
           main: {
             background: mantineTheme.colors.dark[8],
+            paddingBottom: { base: '100px', sm: '120px' }, // Responsive padding for the player controls
+            color: 'white', // Explicitly set text color for the main content
           },
         }}
       >
         <AppShell.Header style={{ 
           background: mantineTheme.colors.dark[8],
-          borderBottom: '1px solid',
-          borderColor: mantineTheme.colors.dark[6]
+          borderBottom: 'none'
         }}>
           {/* Center title with flex layout */}
           <Flex 
@@ -120,12 +299,16 @@ function App() {
             justify="center" 
             align="center"
           >
-            <Title order={3} c="white">SLAB ONE</Title>
+            <Title order={3}>
+              <Text span c="#ff922b" inherit>SLAB</Text>
+              <Text span c="white" inherit> ONE</Text>
+            </Title>
           </Flex>
         </AppShell.Header>
           
         <AppShell.Main>
           <Container size="lg" py="md">
+            {/* Main content area */}
             <Flex
               direction="column"
               gap="xl"
@@ -133,41 +316,45 @@ function App() {
               align="stretch"
               mb="xl"
             >
+              {/* Album and Tracks section */}
               <Flex
                 direction={{ base: 'column', md: 'row' }}
                 gap="xl"
                 justify="flex-start"
-                align={{ base: 'center', md: 'flex-start' }}
+                align={{ base: 'stretch', md: 'flex-start' }}
                 mb="xl"
               >
-                <Box w={{ base: '100%', md: 300 }} maw={300}>
-                  <Card shadow="sm" p="lg" radius="md" withBorder>
+                {/* Album cover on the left */}
+                <Box w={{ base: '100%', md: 300 }} maw={{ md: 300 }}>
+                  <Card shadow="sm" p="lg" radius="md" withBorder={false}>
                     <Card.Section>
                       {playerState.albumImage ? (
                         <Image
                           src={playerState.albumImage}
-                          height={300}
+                          height={{ base: 250, md: 300 }}
                           alt="Album cover"
+                          fit="contain"
                         />
                       ) : (
-                        <Center p="xl" h={300} bg={mantineTheme.colors.dark[4]}>
+                        <Center p="xl" h={{ base: 250, md: 300 }} bg={mantineTheme.colors.dark[4]}>
                           <IconAlbum size={100} color={mantineTheme.colors.gray[2]} />
                         </Center>
                       )}
                     </Card.Section>
                     
                     <Stack mt="md" mb="xs">
-                      <Title order={3}>{playerState.currentTrack || 'No track playing'}</Title>
+                      <Title order={3} c="white">{playerState.currentTrack || 'No track playing'}</Title>
                       <Text size="sm" c="dimmed">{playerState.currentAlbum || 'No album'}</Text>
                     </Stack>
                   </Card>
                 </Box>
                 
+                {/* Tracks list on the right */}
                 <Box style={{ flex: 1 }}>
-                  {playerState.albumTracks.length > 0 && (
-                    <Paper shadow="sm" p="lg" withBorder mb="md">
+                  {playerState.albumTracks.length > 0 ? (
+                    <Paper shadow="sm" p="lg" radius="md" withBorder={false}>
                       <Group position="apart" mb="md">
-                        <Title order={4}>Album Tracks</Title>
+                        <Title order={4} c="white">Album Tracks</Title>
                         <IconList size={20} />
                       </Group>
                       
@@ -180,130 +367,63 @@ function App() {
                       }>
                         {playerState.albumTracks.map((track, index) => (
                           <List.Item key={index}>
-                            <Text>{track}</Text>
+                            <Text c="white">{track}</Text>
                           </List.Item>
                         ))}
                       </List>
                     </Paper>
+                  ) : (
+                    <Paper shadow="sm" p="lg" radius="md" withBorder={false}>
+                      <Center p="xl">
+                        <Text c="dimmed">No tracks available</Text>
+                      </Center>
+                    </Paper>
                   )}
                 </Box>
               </Flex>
-              
-              {/* Player controls that span full width */}
-              <Paper 
-                shadow="sm" 
-                p="lg" 
-                withBorder 
-                style={{
-                  background: mantineTheme.colors.dark[6],
-                }}
-              >
-                <Stack spacing="md" align="center">
-                  {/* Playback controls - centered */}
-                  <Group position="center" spacing="md">
-                    <ActionIcon 
-                      variant="subtle" 
-                      color="orange" 
-                      size="lg"
-                      onClick={() => handleAction('prev_track')}
-                    >
-                      <IconPlayerTrackPrev style={{ width: rem(24), height: rem(24) }} />
-                    </ActionIcon>
-                    
-                    <ActionIcon 
-                      variant="filled" 
-                      color="orange" 
-                      size="xl"
-                      radius="xl"
-                      onClick={() => handleAction('toggle_play_pause')}
-                    >
-                      {playerState.isPlaying ? 
-                        <IconPlayerPause style={{ width: rem(30), height: rem(30) }} /> : 
-                        <IconPlayerPlay style={{ width: rem(30), height: rem(30) }} />
-                      }
-                    </ActionIcon>
-                    
-                    <ActionIcon 
-                      variant="subtle" 
-                      color="orange" 
-                      size="lg"
-                      onClick={() => handleAction('next_track')}
-                    >
-                      <IconPlayerTrackNext style={{ width: rem(24), height: rem(24) }} />
-                    </ActionIcon>
-                    
-                    <ActionIcon 
-                      variant={playerState.repeatPlayback ? "filled" : "subtle"}
-                      color="orange" 
-                      size="lg"
-                      onClick={() => handleAction('toggle_repeat_playback')}
-                    >
-                      <IconRepeat style={{ width: rem(24), height: rem(24) }} />
-                    </ActionIcon>
-                  </Group>
-                  
-                  {/* Progress bar with times on either end */}
-                  <Box style={{ width: '100%', maxWidth: '600px' }}>
-                    <Progress 
-                      value={(playerState.position / playerState.length) * 100 || 0} 
-                      size="sm" 
-                      radius="xl"
-                      color="orange"
-                    />
-                    <Group position="apart" mt={5}>
-                      <Text size="xs">{formatTime(playerState.position)}</Text>
-                      <Text size="xs">{formatTime(playerState.length)}</Text>
-                    </Group>
-                  </Box>
-                  
-                  {/* Volume controls - centered */}
-                  <Group position="center" style={{ width: '100%', maxWidth: '500px' }}>
-                    <ActionIcon 
-                      variant="subtle" 
-                      color="orange"
-                      onClick={() => handleAction('set_volume', playerState.volume > 0 ? 0 : 70)}
-                    >
-                      {playerState.volume > 0 ? 
-                        <IconVolume style={{ width: rem(18), height: rem(18) }} /> : 
-                        <IconVolumeOff style={{ width: rem(18), height: rem(18) }} />
-                      }
-                    </ActionIcon>
-                    
-                    <Slider
-                      style={{ flex: 1 }}
-                      value={playerState.volume}
-                      onChange={(value) => handleAction('set_volume', value)}
-                      size="sm"
-                      radius="xl"
-                      label={null}
-                      color="orange"
-                    />
-                    
-                    <Text size="sm" w={40} ta="right">{playerState.volume}%</Text>
-                  </Group>
-                </Stack>
-              </Paper>
-              
-              {/* Log Messages Accordion - Moved below player controls */}
-              <Accordion variant="contained">
-                <Accordion.Item value="logs">
-                  <Accordion.Control icon={<IconHistory size={20} />}>
-                    <Title order={5}>Log Messages</Title>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <ScrollArea h={200}>
-                      <Box>
-                        {playerState.logs.map((log, index) => (
-                          <Text key={index} size="xs" ff="monospace">{log}</Text>
-                        ))}
-                      </Box>
-                    </ScrollArea>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
             </Flex>
           </Container>
         </AppShell.Main>
+        
+        {/* Player Controls docked at the bottom */}
+        <PlayerControls />
+        
+        {/* Logs Drawer that slides up from the bottom */}
+        <Drawer
+          opened={logsDrawerOpen}
+          onClose={() => setLogsDrawerOpen(false)}
+          position="bottom"
+          size="md"
+          title={
+            <Group>
+              <IconHistory size={20} />
+              <Title order={5} c="white">Log Messages</Title>
+            </Group>
+          }
+          styles={{
+            header: {
+              background: mantineTheme.colors.dark[7],
+              borderBottom: `1px solid ${mantineTheme.colors.dark[5]}`,
+            },
+            body: {
+              background: mantineTheme.colors.dark[7],
+            }
+          }}
+        >
+          <ScrollArea h={300}>
+            <Box p="md">
+              {playerState.logs.length > 0 ? (
+                playerState.logs.map((log, index) => (
+                  <Text key={index} size="xs" ff="monospace" mb={5} c="white">{log}</Text>
+                ))
+              ) : (
+                <Center>
+                  <Text c="dimmed">No log messages available</Text>
+                </Center>
+              )}
+            </Box>
+          </ScrollArea>
+        </Drawer>
       </AppShell>
     </MantineProvider>
   );

@@ -29,42 +29,81 @@ def extract_album_art(file_path):
     if not file_path:
         return None
     
-    # First, try to extract from metadata if mutagen is available
-    if METADATA_SUPPORT:
-        try:
-            if file_path.lower().endswith('.mp3'):
-                audio = MP3(file_path)
-                if audio.tags:
-                    for tag in audio.tags.values():
-                        if tag.FrameID == 'APIC':  # ID3 picture frame
-                            image_data = tag.data
+    # URL decode the file path to handle spaces and special characters
+    try:
+        from urllib.parse import unquote
+        decoded_file_path = unquote(file_path)
+        
+        # Check if the decoded file exists
+        if not os.path.exists(decoded_file_path):
+            log_message(f"File not found: {decoded_file_path}")
+            # Try to get just the album directory
+            album_dir = os.path.dirname(decoded_file_path)
+            if not os.path.exists(album_dir):
+                log_message(f"Album directory not found: {album_dir}")
+                return None
+        else:
+            # First, try to extract from metadata if mutagen is available
+            if METADATA_SUPPORT:
+                try:
+                    if decoded_file_path.lower().endswith('.mp3'):
+                        audio = MP3(decoded_file_path)
+                        if audio.tags:
+                            for tag in audio.tags.values():
+                                if tag.FrameID == 'APIC':  # ID3 picture frame
+                                    image_data = tag.data
+                                    return f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
+                    
+                    elif decoded_file_path.lower().endswith('.flac'):
+                        audio = FLAC(decoded_file_path)
+                        if audio.pictures:
+                            picture = audio.pictures[0]
+                            image_data = picture.data
                             return f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
-            
-            elif file_path.lower().endswith('.flac'):
-                audio = FLAC(file_path)
-                if audio.pictures:
-                    picture = audio.pictures[0]
-                    image_data = picture.data
-                    return f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
+                except Exception as e:
+                    log_message(f"Error extracting metadata: {str(e)}")
+    
+        # If metadata extraction failed or not available, look for cover images in the album folder
+        album_dir = os.path.dirname(decoded_file_path)
+        
+        # Look for common cover image filenames
+        cover_filenames = ['cover.jpg', 'cover.png', 'folder.jpg', 'folder.png', 
+                           'album.jpg', 'album.png', 'front.jpg', 'front.png',
+                           'Cover.jpg', 'Cover.png', 'Folder.jpg', 'Folder.png',
+                           'artwork.jpg', 'artwork.png', 'Artwork.jpg', 'Artwork.png',
+                           'albumart.jpg', 'albumart.png', 'AlbumArt.jpg', 'AlbumArt.png']
+        
+        # First try exact matches
+        for cover_name in cover_filenames:
+            cover_path = os.path.join(album_dir, cover_name)
+            if os.path.exists(cover_path):
+                try:
+                    with open(cover_path, 'rb') as img_file:
+                        img_data = img_file.read()
+                        img_type = cover_path.split('.')[-1].lower()
+                        return f"data:image/{img_type};base64,{base64.b64encode(img_data).decode('utf-8')}"
+                except Exception as e:
+                    log_message(f"Error reading cover file: {str(e)}")
+        
+        # If no exact matches, look for any image file in the directory
+        try:
+            for file in os.listdir(album_dir):
+                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    cover_path = os.path.join(album_dir, file)
+                    try:
+                        with open(cover_path, 'rb') as img_file:
+                            img_data = img_file.read()
+                            img_type = cover_path.split('.')[-1].lower()
+                            if img_type == 'jpeg':
+                                img_type = 'jpg'
+                            return f"data:image/{img_type};base64,{base64.b64encode(img_data).decode('utf-8')}"
+                    except Exception as e:
+                        log_message(f"Error reading image file {file}: {str(e)}")
         except Exception as e:
-            log_message(f"Error extracting metadata: {str(e)}")
+            log_message(f"Error listing directory {album_dir}: {str(e)}")
     
-    # If metadata extraction failed or not available, look for cover images in the album folder
-    album_dir = os.path.dirname(file_path)
-    cover_filenames = ['cover.jpg', 'cover.png', 'folder.jpg', 'folder.png', 
-                       'album.jpg', 'album.png', 'front.jpg', 'front.png',
-                       'Cover.jpg', 'Cover.png', 'Folder.jpg', 'Folder.png']
-    
-    for cover_name in cover_filenames:
-        cover_path = os.path.join(album_dir, cover_name)
-        if os.path.exists(cover_path):
-            try:
-                with open(cover_path, 'rb') as img_file:
-                    img_data = img_file.read()
-                    img_type = cover_path.split('.')[-1].lower()
-                    return f"data:image/{img_type};base64,{base64.b64encode(img_data).decode('utf-8')}"
-            except Exception as e:
-                log_message(f"Error reading cover file: {str(e)}")
+    except Exception as e:
+        log_message(f"Error processing file path: {str(e)}")
     
     return None
 
@@ -78,8 +117,15 @@ def get_player_state():
     
     # Get current track path for album art extraction
     current_track_path = None
+    album_dir = None
+    
+    # First try to get the path from the player
     if player.current_track_path:
         current_track_path = player.current_track_path
+        album_dir = os.path.dirname(player.current_track_path)
+    elif player.current_album_folder:
+        # If we have the album folder but not the specific track
+        album_dir = player.current_album_folder
     elif player.current_album_tracks and player.media_player.get_media():
         # Try to determine which track is currently playing
         media_path = player.media_player.get_media().get_mrl()
@@ -88,7 +134,12 @@ def get_player_state():
         current_track_path = media_path
     
     # Extract album art
-    album_image = extract_album_art(current_track_path)
+    album_image = None
+    if current_track_path:
+        album_image = extract_album_art(current_track_path)
+    elif album_dir:
+        # If we only have the album directory, try to find any image in it
+        album_image = extract_album_art(os.path.join(album_dir, "dummy.mp3"))
     
     # Get playback position information
     playback_info = player.get_playback_info()

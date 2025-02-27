@@ -8,7 +8,15 @@ import { theme } from './theme';
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <MantineProvider theme={{ ...theme, colorScheme: 'dark' }}>
+    <MantineProvider 
+      theme={{ ...theme, colorScheme: 'dark' }} 
+      withGlobalStyles 
+      withNormalizeCSS
+      defaultProps={{
+        Text: { c: 'white' },
+        Title: { c: 'white' }
+      }}
+    >
       <App />
     </MantineProvider>
   </React.StrictMode>
