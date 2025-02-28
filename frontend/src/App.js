@@ -38,7 +38,8 @@ import {
   IconAlbum,
   IconChevronUp,
   IconMaximize,
-  IconLayoutList
+  IconLayoutList,
+  IconRepeat
 } from '@tabler/icons-react';
 import { theme } from './theme';
 
@@ -53,7 +54,7 @@ function App() {
     albumTracks: [],
     volume: 70,
     isPlaying: false,
-    repeatPlayback: false,
+    repeatPlayback: true,
     logs: [],
     albumImage: null,
     position: 0,
@@ -76,13 +77,13 @@ function App() {
         ...response.data,
         // If no album image is provided by the API, we'll use a placeholder
         albumImage: response.data.albumImage || null,
-        // Ensure repeat is on by default in album view
-        repeatPlayback: fullScreenMode ? true : response.data.repeatPlayback
+        // Keep the repeat state from the API response
+        repeatPlayback: response.data.repeatPlayback
       });
     } catch (error) {
       console.error('Error fetching player state:', error);
     }
-  }, [fullScreenMode]);
+  }, []);
   
   useEffect(() => {
     fetchPlayerState();
@@ -96,12 +97,24 @@ function App() {
       if (param !== null) {
         url += `/${param}`;
       }
+      
+      // Special handling for play button when playback has stopped
+      if (action === 'toggle_play_pause' && !playerState.isPlaying) {
+        // If we have a current track but playback is stopped, try to restart it
+        if (playerState.currentTrack) {
+          // First try to restart the current track
+          await axios.post('/api/restart_playback');
+          fetchPlayerState();
+          return;
+        }
+      }
+      
       await axios.post(url);
       fetchPlayerState();
     } catch (error) {
       console.error(`Error with action ${action}:`, error);
     }
-  }, [fetchPlayerState]);
+  }, [fetchPlayerState, playerState.isPlaying, playerState.currentTrack]);
 
   // Format time in mm:ss
   const formatTime = (seconds) => {
@@ -459,6 +472,22 @@ function App() {
               >
                 <IconPlayerTrackNext color="#ff922b" stroke={2} style={{ width: rem(24), height: rem(24) }} />
               </ActionIcon>
+              
+              {/* Add repeat toggle button back to detailed view */}
+              <ActionIcon 
+                variant={playerState.repeatPlayback ? "filled" : "subtle"}
+                color="orange" 
+                size="md"
+                onClick={() => handleAction('toggle_repeat_playback')}
+                sx={{ color: '#ff922b' }}
+                title="Toggle Repeat"
+              >
+                <IconRepeat 
+                  color={playerState.repeatPlayback ? "white" : "#ff922b"} 
+                  stroke={2} 
+                  style={{ width: rem(18), height: rem(18) }} 
+                />
+              </ActionIcon>
             </Group>
           </Box>
           
@@ -642,13 +671,6 @@ function App() {
       </Flex>
     </Container>
   );
-  
-  // Ensure repeat is turned on when switching to album view
-  useEffect(() => {
-    if (fullScreenMode && !playerState.repeatPlayback) {
-      handleAction('toggle_repeat_playback');
-    }
-  }, [fullScreenMode, playerState.repeatPlayback, handleAction]);
   
   return (
     <MantineProvider theme={{ ...theme, colorScheme }} withGlobalStyles withNormalizeCSS>
