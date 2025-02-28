@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
   AppShell,
   Group,
   Title,
   Text,
-  Button,
   List,
   Stack,
   Progress,
@@ -13,18 +12,18 @@ import {
   Paper,
   Slider,
   ActionIcon,
-  Accordion,
   Image,
   Flex,
   Box,
   rem,
   useMantineTheme,
-  Divider,
   ScrollArea,
   Card,
   Center,
   MantineProvider,
-  Drawer
+  Drawer,
+  Popover,
+  Button
 } from '@mantine/core';
 import {
   IconPlayerPlay,
@@ -33,12 +32,13 @@ import {
   IconPlayerTrackPrev,
   IconVolume,
   IconVolumeOff,
-  IconRepeat,
   IconMusic,
   IconHistory,
   IconList,
   IconAlbum,
-  IconChevronUp
+  IconChevronUp,
+  IconMaximize,
+  IconLayoutList
 } from '@tabler/icons-react';
 import { theme } from './theme';
 
@@ -63,26 +63,34 @@ function App() {
   // State for log drawer
   const [logsDrawerOpen, setLogsDrawerOpen] = useState(false);
   
-  const fetchPlayerState = async () => {
+  // State for volume popover
+  const [volumePopoverOpened, setVolumePopoverOpened] = useState(false);
+  
+  // State for view mode (true = full screen album view, false = detailed view)
+  const [fullScreenMode, setFullScreenMode] = useState(true);
+  
+  const fetchPlayerState = useCallback(async () => {
     try {
       const response = await axios.get('/api/player_state');
       setPlayerState({
         ...response.data,
         // If no album image is provided by the API, we'll use a placeholder
-        albumImage: response.data.albumImage || null
+        albumImage: response.data.albumImage || null,
+        // Ensure repeat is on by default in album view
+        repeatPlayback: fullScreenMode ? true : response.data.repeatPlayback
       });
     } catch (error) {
       console.error('Error fetching player state:', error);
     }
-  };
+  }, [fullScreenMode]);
   
   useEffect(() => {
     fetchPlayerState();
     const interval = setInterval(fetchPlayerState, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchPlayerState]);
   
-  const handleAction = async (action, param = null) => {
+  const handleAction = useCallback(async (action, param = null) => {
     try {
       let url = `/api/${action}`;
       if (param !== null) {
@@ -93,7 +101,7 @@ function App() {
     } catch (error) {
       console.error(`Error with action ${action}:`, error);
     }
-  };
+  }, [fetchPlayerState]);
 
   // Format time in mm:ss
   const formatTime = (seconds) => {
@@ -102,6 +110,128 @@ function App() {
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+  
+  // Full screen album view component
+  const FullScreenAlbumView = () => (
+    <Flex 
+      direction="column" 
+      align="center" 
+      justify="center" 
+      style={{ 
+        height: 'calc(100vh - 120px)',
+        width: '100%',
+        maxWidth: '100%',
+        padding: '0 20px'
+      }}
+    >
+      {/* Album cover */}
+      <Box 
+        style={{ 
+          width: '100%', 
+          maxWidth: '400px',
+          marginBottom: '1rem'
+        }}
+      >
+        <Card 
+          shadow="sm" 
+          p={0}
+          radius="md" 
+          withBorder={false}
+          style={{ 
+            backgroundColor: mantineTheme.colors.dark[7],
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            border: 'none',
+            boxShadow: 'none'
+          }}
+        >
+          <Card.Section style={{ width: '100%' }}>
+            {playerState.albumImage ? (
+              <Image
+                src={playerState.albumImage}
+                height={{ base: 250, md: 300 }}
+                alt="Album cover"
+                fit="contain"
+                style={{ backgroundColor: mantineTheme.colors.dark[6] }}
+              />
+            ) : (
+              <Center p="xl" h={{ base: 250, md: 300 }} bg={mantineTheme.colors.dark[6]}>
+                <IconAlbum size={100} color={mantineTheme.colors.gray[2]} />
+              </Center>
+            )}
+          </Card.Section>
+        </Card>
+      </Box>
+      
+      {/* Track info with padding */}
+      <Box 
+        p="lg" 
+        style={{ 
+          width: '100%', 
+          maxWidth: '400px', 
+          textAlign: 'center',
+          marginBottom: '1rem'
+        }}
+      >
+        {playerState.currentTrack && (
+          <Title order={3} c="white" mb={5}>{playerState.currentTrack}</Title>
+        )}
+        {playerState.currentAlbum && (
+          <Text size="md" c="dimmed">{playerState.currentAlbum}</Text>
+        )}
+      </Box>
+      
+      {/* Simplified controls for full screen mode */}
+      <Group position="center" spacing="xl" mt="md">
+        <ActionIcon 
+          variant="subtle" 
+          color="orange" 
+          size="xl"
+          onClick={() => handleAction('prev_track')}
+          sx={{ color: '#ff922b' }}
+        >
+          <IconPlayerTrackPrev color="#ff922b" stroke={2} style={{ width: rem(30), height: rem(30) }} />
+        </ActionIcon>
+        
+        <ActionIcon 
+          variant="filled" 
+          color="orange" 
+          size="xl"
+          radius="xl"
+          onClick={() => handleAction('toggle_play_pause')}
+          style={{ transform: 'scale(1.2)' }}
+        >
+          {playerState.isPlaying ? 
+            <IconPlayerPause color="white" stroke={2} style={{ width: rem(36), height: rem(36) }} /> : 
+            <IconPlayerPlay color="white" stroke={2} style={{ width: rem(36), height: rem(36) }} />
+          }
+        </ActionIcon>
+        
+        <ActionIcon 
+          variant="subtle" 
+          color="orange" 
+          size="xl"
+          onClick={() => handleAction('next_track')}
+          sx={{ color: '#ff922b' }}
+        >
+          <IconPlayerTrackNext color="#ff922b" stroke={2} style={{ width: rem(30), height: rem(30) }} />
+        </ActionIcon>
+      </Group>
+      
+      {/* View toggle button - made more prominent */}
+      <Button 
+        variant="subtle" 
+        color="gray" 
+        size="md"
+        leftIcon={<IconLayoutList style={{ width: rem(18), height: rem(18) }} />}
+        onClick={() => setFullScreenMode(false)}
+        mt="xl"
+      >
+        Show Details
+      </Button>
+    </Flex>
+  );
   
   // Player controls component that will be docked at the bottom
   const PlayerControls = () => (
@@ -133,15 +263,129 @@ function App() {
           </Flex>
         </Box>
         
+        {/* Mobile controls - only visible on mobile */}
+        <Flex 
+          justify="center" 
+          align="center" 
+          style={{ width: '100%', maxWidth: '800px' }}
+          display={{ base: 'flex', sm: 'none' }}
+          gap="xl"
+        >
+          <Group position="center" spacing="xl">
+            {/* Mobile volume control */}
+            <Popover 
+              opened={volumePopoverOpened} 
+              onChange={setVolumePopoverOpened}
+              position="top"
+              shadow="md"
+              withArrow
+              styles={{
+                dropdown: {
+                  background: mantineTheme.colors.dark[7],
+                  border: `1px solid ${mantineTheme.colors.dark[5]}`,
+                  padding: '15px',
+                }
+              }}
+            >
+              <Popover.Target>
+                <ActionIcon 
+                  variant="subtle" 
+                  color="orange"
+                  size="lg"
+                  onClick={() => setVolumePopoverOpened((o) => !o)}
+                  sx={{ color: '#ff922b' }}
+                >
+                  {playerState.volume > 0 ? 
+                    <IconVolume color="#ff922b" stroke={2} style={{ width: rem(18), height: rem(18) }} /> : 
+                    <IconVolumeOff color="#ff922b" stroke={2} style={{ width: rem(18), height: rem(18) }} />
+                  }
+                </ActionIcon>
+              </Popover.Target>
+              <Popover.Dropdown>
+                <Stack spacing="xs" align="center">
+                  <Text size="xs" c="white">Volume: {playerState.volume}%</Text>
+                  <Slider
+                    style={{ width: '150px' }}
+                    value={playerState.volume}
+                    onChange={(value) => handleAction('set_volume', value)}
+                    size="sm"
+                    radius="xl"
+                    label={null}
+                    color="orange"
+                    min={0}
+                    max={100}
+                  />
+                  <ActionIcon 
+                    variant="subtle" 
+                    color="orange"
+                    onClick={() => handleAction('set_volume', playerState.volume > 0 ? 0 : 70)}
+                    sx={{ color: '#ff922b' }}
+                  >
+                    {playerState.volume > 0 ? 
+                      <IconVolume color="#ff922b" stroke={2} style={{ width: rem(18), height: rem(18) }} /> : 
+                      <IconVolumeOff color="#ff922b" stroke={2} style={{ width: rem(18), height: rem(18) }} />
+                    }
+                  </ActionIcon>
+                </Stack>
+              </Popover.Dropdown>
+            </Popover>
+            
+            <ActionIcon 
+              variant="subtle" 
+              color="orange" 
+              size="lg"
+              onClick={() => handleAction('prev_track')}
+              sx={{ color: '#ff922b' }}
+            >
+              <IconPlayerTrackPrev color="#ff922b" stroke={2} style={{ width: rem(24), height: rem(24) }} />
+            </ActionIcon>
+            
+            <ActionIcon 
+              variant="filled" 
+              color="orange" 
+              size="xl"
+              radius="xl"
+              onClick={() => handleAction('toggle_play_pause')}
+            >
+              {playerState.isPlaying ? 
+                <IconPlayerPause color="white" stroke={2} style={{ width: rem(30), height: rem(30) }} /> : 
+                <IconPlayerPlay color="white" stroke={2} style={{ width: rem(30), height: rem(30) }} />
+              }
+            </ActionIcon>
+            
+            <ActionIcon 
+              variant="subtle" 
+              color="orange" 
+              size="lg"
+              onClick={() => handleAction('next_track')}
+              sx={{ color: '#ff922b' }}
+            >
+              <IconPlayerTrackNext color="#ff922b" stroke={2} style={{ width: rem(24), height: rem(24) }} />
+            </ActionIcon>
+            
+            {/* Logs button - mobile only */}
+            <ActionIcon 
+              variant="subtle" 
+              color="gray" 
+              size="lg"
+              onClick={() => setLogsDrawerOpen(true)}
+              title="Show logs"
+            >
+              <IconChevronUp style={{ width: rem(18), height: rem(18) }} />
+            </ActionIcon>
+          </Group>
+        </Flex>
+        
+        {/* Desktop controls - only visible on desktop */}
         <Flex 
           justify="space-between" 
           align="center" 
           style={{ width: '100%', maxWidth: '800px' }}
-          direction={{ base: 'column', sm: 'row' }}
-          gap={{ base: 'xs', sm: 'md' }}
+          display={{ base: 'none', sm: 'flex' }}
+          gap="md"
         >
-          {/* Track info on the left - hidden on very small screens */}
-          <Box style={{ flex: 1, maxWidth: '33%' }} display={{ base: 'none', sm: 'block' }}>
+          {/* Track info on the left - desktop only */}
+          <Box style={{ flex: 1, maxWidth: '33%' }}>
             <Flex 
               align="center" 
               gap="md" 
@@ -173,21 +417,20 @@ function App() {
             </Flex>
           </Box>
           
-          {/* Playback controls in the center */}
+          {/* Desktop playback controls in the center */}
           <Box 
             style={{ 
               flex: 1, 
               display: 'flex', 
               justifyContent: 'center', 
-              minWidth: { base: '100%', sm: '33%' },
-              padding: { base: '10px 0', sm: 0 }
+              minWidth: '33%',
             }}
           >
-            <Group position="center" spacing={{ base: 'xl', sm: 'md' }}>
+            <Group position="center" spacing="md">
               <ActionIcon 
                 variant="subtle" 
                 color="orange" 
-                size={{ base: 'lg', sm: 'md' }}
+                size="md"
                 onClick={() => handleAction('prev_track')}
                 sx={{ color: '#ff922b' }}
               >
@@ -197,7 +440,7 @@ function App() {
               <ActionIcon 
                 variant="filled" 
                 color="orange" 
-                size={{ base: 'xl', sm: 'lg' }}
+                size="lg"
                 radius="xl"
                 onClick={() => handleAction('toggle_play_pause')}
               >
@@ -210,32 +453,22 @@ function App() {
               <ActionIcon 
                 variant="subtle" 
                 color="orange" 
-                size={{ base: 'lg', sm: 'md' }}
+                size="md"
                 onClick={() => handleAction('next_track')}
                 sx={{ color: '#ff922b' }}
               >
                 <IconPlayerTrackNext color="#ff922b" stroke={2} style={{ width: rem(24), height: rem(24) }} />
               </ActionIcon>
-              
-              <ActionIcon 
-                variant={playerState.repeatPlayback ? "filled" : "subtle"}
-                color="orange" 
-                size={{ base: 'lg', sm: 'md' }}
-                onClick={() => handleAction('toggle_repeat_playback')}
-                sx={{ color: playerState.repeatPlayback ? 'white' : '#ff922b' }}
-              >
-                <IconRepeat color={playerState.repeatPlayback ? "white" : "#ff922b"} stroke={2} style={{ width: rem(24), height: rem(24) }} />
-              </ActionIcon>
             </Group>
           </Box>
           
           {/* Right side controls - desktop only */}
-          <Box style={{ flex: 1, maxWidth: '33%', display: 'flex', justifyContent: 'flex-end' }} display={{ base: 'none', sm: 'flex' }}>
+          <Box style={{ flex: 1, maxWidth: '33%', display: 'flex', justifyContent: 'flex-end' }}>
             <Flex 
               align="center" 
               gap="md" 
             >
-              {/* Volume controls */}
+              {/* Volume controls - desktop only */}
               <Group spacing="xs">
                 <ActionIcon 
                   variant="subtle" 
@@ -276,6 +509,147 @@ function App() {
     </Paper>
   );
   
+  // Detailed view component
+  const DetailedView = () => (
+    <Container size="lg" py="md">
+      {/* View toggle button - changed to icon button */}
+      <ActionIcon 
+        variant="filled" 
+        color="orange" 
+        size="lg"
+        onClick={() => setFullScreenMode(true)}
+        style={{ 
+          position: 'fixed', 
+          top: '80px', 
+          right: '20px',
+          zIndex: 10
+        }}
+        title="Full Screen View"
+      >
+        <IconMaximize style={{ width: rem(20), height: rem(20) }} />
+      </ActionIcon>
+      
+      {/* Main content area */}
+      <Flex
+        direction="column"
+        gap="xl"
+        justify="flex-start"
+        align="stretch"
+        mb="xl"
+      >
+        {/* Album and Tracks section */}
+        <Flex
+          direction={{ base: 'column', md: 'row' }}
+          gap="xl"
+          justify="flex-start"
+          align={{ base: 'stretch', md: 'flex-start' }}
+          mb="xl"
+        >
+          {/* Album cover on the left */}
+          <Box w={{ base: '100%', md: 300 }} maw={{ md: 300 }}>
+            <Card 
+              shadow="sm" 
+              p={0}
+              radius="md" 
+              withBorder={false}
+              h={{ md: 500 }}
+              style={{ 
+                backgroundColor: mantineTheme.colors.dark[7],
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+            >
+              <Card.Section style={{ flex: '0 0 auto' }}>
+                {playerState.albumImage ? (
+                  <Image
+                    src={playerState.albumImage}
+                    height={{ base: 250, md: 300 }}
+                    alt="Album cover"
+                    fit="contain"
+                    style={{ backgroundColor: mantineTheme.colors.dark[6] }}
+                  />
+                ) : (
+                  <Center p="xl" h={{ base: 250, md: 300 }} bg={mantineTheme.colors.dark[6]}>
+                    <IconAlbum size={100} color={mantineTheme.colors.gray[2]} />
+                  </Center>
+                )}
+              </Card.Section>
+              
+              <Stack mt="md" mb="xs" px="md" style={{ flex: '1 1 auto' }}>
+                <Title order={3} c="white">{playerState.currentTrack || 'No track playing'}</Title>
+                <Text size="sm" c="dimmed">{playerState.currentAlbum || 'No album'}</Text>
+              </Stack>
+            </Card>
+          </Box>
+          
+          {/* Tracks list on the right */}
+          <Box style={{ flex: 1 }}>
+            {playerState.albumTracks.length > 0 ? (
+              <Paper 
+                shadow="sm" 
+                p="lg" 
+                radius="md" 
+                withBorder={false}
+                h={{ md: 500 }}
+                style={{ 
+                  backgroundColor: mantineTheme.colors.dark[7],
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
+                <Group position="apart" mb="md" style={{ flex: '0 0 auto' }}>
+                  <Title order={4} c="white">Album Tracks</Title>
+                  <IconList size={20} />
+                </Group>
+                
+                <ScrollArea style={{ flex: '1 1 auto' }}>
+                  <List spacing="xs" size="sm" center icon={
+                    <Box w={24} h={24} bg={mantineTheme.colors.orange[6]} style={{ borderRadius: '50%' }}>
+                      <Center h="100%">
+                        <IconMusic size={14} color="white" />
+                      </Center>
+                    </Box>
+                  }>
+                    {playerState.albumTracks.map((track, index) => (
+                      <List.Item key={index}>
+                        <Text c="white">{track}</Text>
+                      </List.Item>
+                    ))}
+                  </List>
+                </ScrollArea>
+              </Paper>
+            ) : (
+              <Paper 
+                shadow="sm" 
+                p="lg" 
+                radius="md" 
+                withBorder={false}
+                h={{ md: 500 }}
+                style={{ 
+                  backgroundColor: mantineTheme.colors.dark[7],
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center'
+                }}
+              >
+                <Center p="xl">
+                  <Text c="dimmed">No tracks available</Text>
+                </Center>
+              </Paper>
+            )}
+          </Box>
+        </Flex>
+      </Flex>
+    </Container>
+  );
+  
+  // Ensure repeat is turned on when switching to album view
+  useEffect(() => {
+    if (fullScreenMode && !playerState.repeatPlayback) {
+      handleAction('toggle_repeat_playback');
+    }
+  }, [fullScreenMode, playerState.repeatPlayback, handleAction]);
+  
   return (
     <MantineProvider theme={{ ...theme, colorScheme }} withGlobalStyles withNormalizeCSS>
       <AppShell
@@ -307,86 +681,12 @@ function App() {
         </AppShell.Header>
           
         <AppShell.Main>
-          <Container size="lg" py="md">
-            {/* Main content area */}
-            <Flex
-              direction="column"
-              gap="xl"
-              justify="flex-start"
-              align="stretch"
-              mb="xl"
-            >
-              {/* Album and Tracks section */}
-              <Flex
-                direction={{ base: 'column', md: 'row' }}
-                gap="xl"
-                justify="flex-start"
-                align={{ base: 'stretch', md: 'flex-start' }}
-                mb="xl"
-              >
-                {/* Album cover on the left */}
-                <Box w={{ base: '100%', md: 300 }} maw={{ md: 300 }}>
-                  <Card shadow="sm" p="lg" radius="md" withBorder={false}>
-                    <Card.Section>
-                      {playerState.albumImage ? (
-                        <Image
-                          src={playerState.albumImage}
-                          height={{ base: 250, md: 300 }}
-                          alt="Album cover"
-                          fit="contain"
-                        />
-                      ) : (
-                        <Center p="xl" h={{ base: 250, md: 300 }} bg={mantineTheme.colors.dark[4]}>
-                          <IconAlbum size={100} color={mantineTheme.colors.gray[2]} />
-                        </Center>
-                      )}
-                    </Card.Section>
-                    
-                    <Stack mt="md" mb="xs">
-                      <Title order={3} c="white">{playerState.currentTrack || 'No track playing'}</Title>
-                      <Text size="sm" c="dimmed">{playerState.currentAlbum || 'No album'}</Text>
-                    </Stack>
-                  </Card>
-                </Box>
-                
-                {/* Tracks list on the right */}
-                <Box style={{ flex: 1 }}>
-                  {playerState.albumTracks.length > 0 ? (
-                    <Paper shadow="sm" p="lg" radius="md" withBorder={false}>
-                      <Group position="apart" mb="md">
-                        <Title order={4} c="white">Album Tracks</Title>
-                        <IconList size={20} />
-                      </Group>
-                      
-                      <List spacing="xs" size="sm" center icon={
-                        <Box w={24} h={24} bg={mantineTheme.colors.orange[6]} style={{ borderRadius: '50%' }}>
-                          <Center h="100%">
-                            <IconMusic size={14} color="white" />
-                          </Center>
-                        </Box>
-                      }>
-                        {playerState.albumTracks.map((track, index) => (
-                          <List.Item key={index}>
-                            <Text c="white">{track}</Text>
-                          </List.Item>
-                        ))}
-                      </List>
-                    </Paper>
-                  ) : (
-                    <Paper shadow="sm" p="lg" radius="md" withBorder={false}>
-                      <Center p="xl">
-                        <Text c="dimmed">No tracks available</Text>
-                      </Center>
-                    </Paper>
-                  )}
-                </Box>
-              </Flex>
-            </Flex>
-          </Container>
+          {/* Conditional rendering based on view mode */}
+          {fullScreenMode ? <FullScreenAlbumView /> : <DetailedView />}
         </AppShell.Main>
         
-        {/* Player Controls docked at the bottom */}
-        <PlayerControls />
+        {/* Player Controls docked at the bottom - only shown in detailed view */}
+        {!fullScreenMode && <PlayerControls />}
         
         {/* Logs Drawer that slides up from the bottom */}
         <Drawer
@@ -429,4 +729,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

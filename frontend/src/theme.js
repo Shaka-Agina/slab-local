@@ -66,6 +66,18 @@ export const theme = createTheme({
         withBorder: true,
         p: 'lg',
       },
+      styles: {
+        root: {
+          backgroundColor: '#1A1B1E',
+        }
+      }
+    },
+    Card: {
+      styles: {
+        root: {
+          backgroundColor: '#1A1B1E',
+        }
+      }
     },
     Text: {
       defaultProps: {
