@@ -5,6 +5,29 @@
 echo "=== Raspberry Pi Music Player Installation ==="
 echo "This script will install all dependencies and set up the music player."
 
+# Check and disable RF kill if active
+echo -e "\n[Prerequisite] Checking wireless status..."
+if command -v rfkill &> /dev/null; then
+    # Check if wireless is blocked
+    if rfkill list wifi | grep -q "Soft blocked: yes"; then
+        echo "Wireless is soft blocked. Unblocking..."
+        sudo rfkill unblock wifi
+    fi
+    
+    if rfkill list wifi | grep -q "Hard blocked: yes"; then
+        echo "WARNING: Wireless is hard blocked. This is typically caused by a physical switch."
+        echo "Please enable your wireless hardware switch and then press Enter to continue..."
+        read -p "Press Enter after enabling wireless or Ctrl+C to cancel installation..." 
+    fi
+    
+    echo "Wireless status:"
+    rfkill list wifi
+else
+    echo "rfkill not found. Skipping wireless check."
+    sudo apt-get install -y rfkill
+    echo "Installed rfkill utility for future wireless management."
+fi
+
 # Update system
 echo -e "\n[1/9] Updating system packages..."
 sudo apt-get update
@@ -115,7 +138,29 @@ echo "USB mounting configuration completed successfully."
 # Set up auto hotspot
 echo -e "\n[5/9] Setting up auto hotspot..."
 sudo apt-get update
+
+# Install and verify hostapd and dnsmasq
+echo "Installing hostapd and dnsmasq..."
 sudo apt-get install -y hostapd dnsmasq
+
+# Verify installation
+if ! dpkg -l | grep -q hostapd || ! dpkg -l | grep -q dnsmasq; then
+    echo "ERROR: Failed to install hostapd or dnsmasq. Retrying..."
+    sudo apt-get update
+    sudo apt-get install -y --reinstall hostapd dnsmasq
+    
+    # Check again
+    if ! dpkg -l | grep -q hostapd || ! dpkg -l | grep -q dnsmasq; then
+        echo "CRITICAL ERROR: Could not install required packages hostapd and dnsmasq."
+        echo "Please check your internet connection and try again."
+        exit 1
+    fi
+fi
+
+# Unmask services in case they are masked
+echo "Unmasking services..."
+sudo systemctl unmask hostapd
+sudo systemctl unmask dnsmasq
 
 # Stop services initially
 sudo systemctl stop hostapd
@@ -188,6 +233,10 @@ sudo sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
 echo "Creating auto hotspot startup script..."
 sudo bash -c "cat > /usr/local/bin/start_hotspot.sh << EOL
 #!/bin/bash
+# Ensure wireless is not blocked
+if command -v rfkill &> /dev/null; then
+    rfkill unblock wifi
+fi
 sudo systemctl start hostapd
 sudo systemctl start dnsmasq
 EOL"
@@ -276,6 +325,17 @@ EOL"
     echo "Service installed and started. Check status with: sudo systemctl status music-player.service"
 else
     echo "Skipping service setup. You can start the player manually with: python main.py"
+fi
+
+# Final check for RF kill before completion
+echo -e "\nPerforming final wireless check..."
+if command -v rfkill &> /dev/null; then
+    if rfkill list wifi | grep -q "blocked: yes"; then
+        echo "WARNING: Wireless is still blocked. The hotspot may not work until wireless is enabled."
+        echo "You can enable wireless with: sudo rfkill unblock wifi"
+    else
+        echo "Wireless is enabled and ready for hotspot."
+    fi
 fi
 
 echo -e "\n=== Installation Complete! ==="
