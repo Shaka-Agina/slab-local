@@ -73,11 +73,65 @@ else
 fi
 
 # Install Docker Compose
+echo "Installing Docker Compose..."
 if ! command -v docker-compose &> /dev/null; then
-    echo "Installing Docker Compose..."
-    sudo pip3 install docker-compose
+    echo "Docker Compose not found. Installing..."
+    
+    # First try with pip3 (for compatibility)
+    if command -v pip3 &> /dev/null; then
+        echo "Attempting pip3 installation..."
+        sudo pip3 install docker-compose
+        
+        # Verify installation
+        if command -v docker-compose &> /dev/null; then
+            echo "Docker Compose installed successfully via pip3."
+        else
+            echo "pip3 installation failed. Trying binary installation..."
+            # Install via binary (more reliable method)
+            DOCKER_COMPOSE_VERSION="v2.20.3"
+            echo "Installing Docker Compose $DOCKER_COMPOSE_VERSION..."
+            
+            # Download and install docker-compose binary
+            sudo curl -L "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            
+            # Create symlink for easier access
+            sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+            
+            # Verify installation
+            if command -v docker-compose &> /dev/null; then
+                echo "Docker Compose installed successfully via binary."
+                docker-compose --version
+            else
+                echo "ERROR: Docker Compose installation failed. Please install manually."
+                exit 1
+            fi
+        fi
+    else
+        echo "pip3 not available. Installing Docker Compose binary directly..."
+        # Install via binary
+        DOCKER_COMPOSE_VERSION="v2.20.3"
+        echo "Installing Docker Compose $DOCKER_COMPOSE_VERSION..."
+        
+        # Download and install docker-compose binary
+        sudo curl -L "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+        
+        # Create symlink for easier access
+        sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+        
+        # Verify installation
+        if command -v docker-compose &> /dev/null; then
+            echo "Docker Compose installed successfully via binary."
+            docker-compose --version
+        else
+            echo "ERROR: Docker Compose installation failed. Please install manually."
+            exit 1
+        fi
+    fi
 else
     echo "Docker Compose is already installed."
+    docker-compose --version
 fi
 
 # Set up auto hotspot
