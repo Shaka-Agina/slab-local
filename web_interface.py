@@ -3,6 +3,7 @@
 
 import os
 import base64
+import time
 from flask import Flask, request, redirect, url_for, jsonify, send_from_directory
 from flask_cors import CORS
 from config import WEB_PORT, CONTROL_USB_MOUNT, repeat_playback
@@ -195,6 +196,15 @@ def set_volume(volume):
     if player.set_volume(volume):
         log_message(f"Volume set to {volume}%")
     return jsonify({'success': True})
+
+# Health check endpoint for Docker
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'service': 'usb-music-player',
+        'timestamp': int(time.time())
+    }), 200
 
 # Serve React App
 @app.route('/', defaults={'path': ''})

@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  music-player:
+    build: .
+    container_name: usb-music-player
+    restart: unless-stopped
+    
+    # Network configuration
+    network_mode: host
+    
+    # Environment variables
+    environment:
+      - MUSIC_USB_MOUNT=/media/pi/MUSIC
+      - CONTROL_USB_MOUNT=/media/pi/PLAY_CARD
+      - CONTROL_FILE_NAME=playMusic.txt
+      - WEB_PORT=5000
+      - DEFAULT_VOLUME=70
+      - PULSE_RUNTIME_PATH=/run/user/1000/pulse
+    
+    # Volume mounts
+    volumes:
+      # USB mount points
+      - /media/pi/MUSIC:/media/pi/MUSIC:rw
+      - /media/pi/PLAY_CARD:/media/pi/PLAY_CARD:rw
+      
+      # Audio system access
+      - /run/user/1000/pulse:/run/user/1000/pulse:rw
+      - /dev/snd:/dev/snd:rw
+      
+      # USB device access
+      - /dev/bus/usb:/dev/bus/usb:rw
+      - /run/udev:/run/udev:ro
+      
+      # Configuration persistence
+      - ./config:/app/config:rw
+      
+      # Logs
+      - ./logs:/app/logs:rw
+    
+    # Device access
+    devices:
+      - /dev/snd
+    
+    # Privileged mode for USB and audio access
+    privileged: true
+    
+    # Port mapping (redundant with host network but kept for clarity)
+    ports:
+      - "5000:5000"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s 
