@@ -5,7 +5,7 @@ import os
 import time
 import glob
 from urllib.parse import unquote
-from config import MUSIC_USB_MOUNT
+from config import MUSIC_USB_MOUNT, CONTROL_USB_MOUNT
 
 # Global log variable
 log_messages = []
@@ -26,6 +26,12 @@ def usb_is_mounted(mount_path):
         return True
     except OSError:
         return False
+
+def find_control_usb():
+    """Find mounted USB device for control files."""
+    if usb_is_mounted(CONTROL_USB_MOUNT):
+        return CONTROL_USB_MOUNT
+    return None
 
 def format_track_name(filename):
     """Decode URL-encoded filename and return its basename without extension."""

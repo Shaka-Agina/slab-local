@@ -6,9 +6,9 @@ import base64
 import time
 from flask import Flask, request, redirect, url_for, jsonify, send_from_directory
 from flask_cors import CORS
-from config import WEB_PORT, CONTROL_USB_MOUNT, repeat_playback
+from config import WEB_PORT, repeat_playback
 from player import player
-from utils import log_message, usb_is_mounted, format_track_name, log_messages
+from utils import log_message, format_track_name, log_messages, find_control_usb
 
 # Try to import music tag libraries for metadata extraction
 try:
@@ -169,7 +169,8 @@ def toggle_repeat_playback():
 @app.route('/api/toggle_play_pause', methods=['POST'])
 def toggle_play_pause():
     # Only allow play/pause if the control USB is present.
-    if usb_is_mounted(CONTROL_USB_MOUNT):
+    control_usb = find_control_usb()
+    if control_usb:
         player.toggle_play_pause()
     else:
         log_message("Play/Pause toggle ignored: No PLAY_CARD present.")
@@ -177,7 +178,8 @@ def toggle_play_pause():
 
 @app.route('/api/next_track', methods=['POST'])
 def next_track():
-    if usb_is_mounted(CONTROL_USB_MOUNT):
+    control_usb = find_control_usb()
+    if control_usb:
         player.next_track()
     else:
         log_message("Next track ignored: No PLAY_CARD present.")
@@ -185,7 +187,8 @@ def next_track():
 
 @app.route('/api/prev_track', methods=['POST'])
 def prev_track():
-    if usb_is_mounted(CONTROL_USB_MOUNT):
+    control_usb = find_control_usb()
+    if control_usb:
         player.previous_track()
     else:
         log_message("Previous track ignored: No PLAY_CARD present.")

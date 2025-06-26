@@ -1,151 +1,171 @@
-# SLAB ONE Music Player
+# Raspberry Pi USB Music Player
 
-A modern music player for Raspberry Pi that plays music from a USB drive based on control files from another USB drive. Features a Spotify-inspired UI built with React and Mantine.
-
-![Music Player Screenshot](https://via.placeholder.com/800x450.png?text=SLAB+ONE+Music+Player)
+A USB-triggered music player for Raspberry Pi that automatically plays music when USB drives are inserted.
 
 ## Features
 
-- Sleek, responsive Spotify-inspired UI
-- Dark/Light mode toggle
-- Mobile-friendly design with full-width player controls
-- Album artwork display from file metadata or cover images
-- Music playback controls (play/pause, next/previous, volume)
-- Album track listing
-- Repeat mode
-- System logs in collapsible accordion
+- 🎵 **Auto-play from USB**: Plug in a USB drive and music starts automatically
+- 📱 **Web Interface**: Control playbook through a modern web interface
+- 🔄 **Album/Track Control**: Play entire albums or individual tracks
+- 🔊 **Volume Control**: Adjust volume through the web interface
+- 📡 **WiFi Hotspot**: Creates its own WiFi network for easy access
+- 🎨 **Album Art**: Displays album artwork when available
+- 🔁 **Repeat Mode**: Toggle repeat playback
+- 🐳 **Docker Support**: Easy deployment with Docker containers
 
-## Project Structure
+## Desktop Environment Setup (Recommended)
 
-The project is organized into the following components:
+This setup is designed for Raspberry Pi OS with Desktop Environment, which includes:
+- Built-in USB auto-mounting (no manual fstab configuration needed)
+- VLC pre-installed
+- Automatic boot-up service
 
-- `main.py`: The main entry point that starts the web interface and monitors USB drives
-- `config.py`: Configuration handling and global settings
-- `player.py`: The Player class that handles VLC media playback
-- `utils.py`: Utility functions for file operations, logging, etc.
-- `web_interface.py`: Flask web interface for controlling the player
-- `frontend/`: React frontend with Mantine UI
+### Quick Installation
 
-## Requirements
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd slab-local
+   ```
 
-- Python 3.6+
-- VLC media player
-- Flask
-- python-vlc
-- mutagen (for metadata extraction)
-- Node.js and npm (for frontend development)
+2. **Run the installation script:**
+   ```bash
+   chmod +x install.sh
+   sudo ./install.sh
+   ```
 
-## Quick Installation
+3. **Reboot your Raspberry Pi:**
+   ```bash
+   sudo reboot
+   ```
 
-The easiest way to install is using the provided installation script:
+## How It Works
 
-```bash
-./install.sh
+### USB Setup
+- **Music USB**: Label your USB drive as `MUSIC` and put your music files in folders by album
+- **Control USB**: Label a small USB drive as `PLAY_CARD` and create a `playMusic.txt` file
+
+### Control File Format
+Create a `playMusic.txt` file on your control USB with one of these formats:
+
+```
+Album: YourAlbumName
+```
+or
+```
+Track: YourTrackName
 ```
 
-This script will:
-1. Update your system
-2. Install required dependencies
-3. Set up a Python virtual environment
-4. Install Python packages
-5. Build the React frontend
-6. Optionally set up a systemd service for autostart
+### USB Mount Points
+The application expects USB drives to be mounted at:
+- **Music USB**: `/media/pi/MUSIC`
+- **Control USB**: `/media/pi/PLAY_CARD`
 
-## Manual Installation
+The desktop environment will automatically mount labeled drives to these locations.
 
-If you prefer to install manually:
+## Web Interface Access
 
-1. Install required system packages:
-   ```bash
-   sudo apt-get update
-   sudo apt-get install -y vlc python3-pip python3-venv git
-   ```
+After installation, the music player creates a WiFi hotspot:
 
-2. Install Node.js:
-   ```bash
-   curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
-   sudo apt-get install -y nodejs
-   ```
-
-3. Set up Python environment and install dependencies:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-4. Build the frontend:
-   ```bash
-   cd frontend
-   npm install
-   npm run build
-   cd ..
-   ```
-
-5. Run the player:
-   ```bash
-   python main.py
-   ```
+1. **Connect to WiFi**: Look for network named "S L A B - XXXX" 
+2. **Password**: `slabmusic`
+3. **Web Interface**: Open browser and go to `http://slab.local:5000` or `http://192.168.4.1:5000`
 
 ## Configuration
 
-The default configuration is stored in `config.ini` and includes:
+The application uses environment variables for configuration:
 
-- `MUSIC_USB_MOUNT`: Path where the music USB drive is mounted (default: `/media/pi/MUSIC`)
-- `CONTROL_USB_MOUNT`: Path where the control USB drive is mounted (default: `/media/pi/PLAY_CARD`)
+- `MUSIC_USB_MOUNT`: Path where music USB drives are mounted (default: `/media/pi/MUSIC`)
+- `CONTROL_USB_MOUNT`: Path where control USB drives are mounted (default: `/media/pi/PLAY_CARD`)
 - `CONTROL_FILE_NAME`: Name of the control file (default: `playMusic.txt`)
-- `WEB_PORT`: Port for the web interface (default: `5000`)
+- `WEB_PORT`: Web interface port (default: `5000`)
 - `DEFAULT_VOLUME`: Default volume level (default: `70`)
 
-## Usage
+## Service Management
 
-1. Connect a USB drive with music to the Raspberry Pi (mounted at `MUSIC_USB_MOUNT`)
-2. Connect a control USB drive (mounted at `CONTROL_USB_MOUNT`)
-3. Create a file named `playMusic.txt` on the control USB with one of these formats:
-   - `Album: AlbumName` - Plays an album folder
-   - `Track: TrackName` - Plays a specific track
+### Docker Service Commands:
+```bash
+# Start the music player
+sudo systemctl start music-player-docker.service
 
-4. Access the web interface at `http://<raspberry-pi-ip>:5000/` to control playback
+# Stop the music player  
+sudo systemctl stop music-player-docker.service
 
-## Album Artwork
+# Check service status
+sudo systemctl status music-player-docker.service
 
-The player will attempt to display album artwork from:
-1. Embedded metadata in MP3/FLAC files (requires mutagen library)
-2. Cover image files in the album directory (looks for cover.jpg, folder.jpg, etc.)
+# View logs
+docker-compose logs -f
+```
 
-## Development
+### Hotspot Service Commands:
+```bash
+# Start/stop hotspot
+sudo systemctl start auto-hotspot.service
+sudo systemctl stop auto-hotspot.service
+```
 
-### Frontend Development
+## Troubleshooting
 
-The frontend is built with React and Mantine UI. To develop the frontend:
+### USB Drives Not Detected
+1. Check if drives are properly mounted: `ls -la /media/pi/`
+2. Ensure drives are labeled correctly (`MUSIC` and `PLAY_CARD`)
+3. Try removing and reinserting the USB drives
+4. Check mount status: `mount | grep /media/pi`
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
+### Web Interface Not Accessible
+1. Check if hotspot is running: `sudo systemctl status auto-hotspot.service`
+2. Verify Docker service: `sudo systemctl status music-player-docker.service`
+3. Check if ports are accessible: `sudo netstat -tlnp | grep 5000`
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+### Audio Issues
+1. Check audio devices: `aplay -l`
+2. Verify VLC installation: `vlc --version`
+3. Check PulseAudio: `pulseaudio --check`
 
-3. Start the development server:
-   ```bash
-   npm start
-   ```
+## Manual Testing
 
-4. The development server will run on port 3000 and proxy API requests to the Flask backend on port 5000.
+You can test the system manually:
 
-5. After making changes, build the production version:
-   ```bash
-   npm run build
-   ```
+```bash
+# Test Docker build
+docker-compose build
 
-### Deploying Changes
+# Test Docker run
+docker-compose up
 
-- For frontend changes only: Build the frontend and transfer the `frontend/build` directory to the Pi
-- For backend changes: Transfer the modified Python files to the Pi and restart the application
+# Test USB detection
+ls -la /media/pi/
 
-## License
+# Test mount points
+mount | grep /media/pi
 
-This project is open source and available under the MIT License. 
+# Test audio
+vlc /path/to/test/audio/file.mp3
+```
+
+## File Structure
+
+```
+slab-local/
+├── docker-compose.yml          # Docker container configuration
+├── Dockerfile                  # Docker image build instructions
+├── install.sh                  # Desktop environment setup script
+├── main.py                     # Main application entry point
+├── player.py                   # Music player logic
+├── web_interface.py            # Web interface and API
+├── config.py                   # Configuration management
+├── utils.py                    # Utility functions
+├── requirements.txt            # Python dependencies
+└── frontend/                   # React web interface
+    ├── src/
+    └── build/
+```
+
+## Legacy Headless Setup
+
+For headless Raspberry Pi setups without desktop environment, see `DOCKER_DEPLOYMENT.md` for manual USB mounting configuration.
+
+---
+
+**Note**: This version is optimized for Raspberry Pi OS with Desktop Environment. USB drives labeled `MUSIC` and `PLAY_CARD` will be automatically mounted to `/media/pi/MUSIC` and `/media/pi/PLAY_CARD` respectively. 

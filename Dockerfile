@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     exfat-fuse \
     exfatprogs \
     sudo \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user
@@ -43,10 +44,9 @@ COPY utils.py ./
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
-# Create necessary directories
+# Create necessary directories for USB mounts
 RUN mkdir -p /media/pi/MUSIC /media/pi/PLAY_CARD && \
-    chown -R appuser:appuser /media/pi && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /media/pi /app
 
 # Create config directory
 RUN mkdir -p /app/config && chown appuser:appuser /app/config

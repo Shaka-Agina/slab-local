@@ -20,9 +20,9 @@ services:
     
     # Volume mounts
     volumes:
-      # USB mount points
-      - /media/pi/MUSIC:/media/pi/MUSIC:rw
-      - /media/pi/PLAY_CARD:/media/pi/PLAY_CARD:rw
+      # USB mount points (specific paths)
+      - /media/pi:/media/pi:rw
+      - /mnt:/mnt:rw
       
       # Audio system access
       - /run/user/1000/pulse:/run/user/1000/pulse:rw
@@ -44,11 +44,7 @@ services:
     
     # Privileged mode for USB and audio access
     privileged: true
-    
-    # Port mapping (redundant with host network but kept for clarity)
-    ports:
-      - "5000:5000"
-    
+        
     # Health check
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]

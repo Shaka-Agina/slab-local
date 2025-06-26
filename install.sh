@@ -1,9 +1,22 @@
 #!/bin/bash
 
-# Music Player Installation Script
+# Music Player Installation Script for Desktop Environment
 
-echo "=== Raspberry Pi Music Player Installation ==="
+echo "=== Raspberry Pi Music Player Installation (Desktop Environment) ==="
 echo "This script will install all dependencies and set up the music player."
+echo "Note: This script assumes you're running Raspberry Pi OS with Desktop Environment"
+echo "which includes auto-mounting and VLC pre-installed."
+
+# Check if running on desktop environment
+if [ -z "$DISPLAY" ]; then
+    echo "WARNING: No display detected. This script is designed for desktop environments."
+    echo "If you're running headless, consider using the headless installation instead."
+    read -p "Continue anyway? (y/N): " continue_anyway
+    if [[ ! $continue_anyway =~ ^[Yy]$ ]]; then
+        echo "Installation cancelled."
+        exit 1
+    fi
+fi
 
 # Check and disable RF kill if active
 echo -e "\n[Prerequisite] Checking wireless status..."
@@ -23,120 +36,52 @@ if command -v rfkill &> /dev/null; then
     echo "Wireless status:"
     rfkill list wifi
 else
-    echo "rfkill not found. Skipping wireless check."
+    echo "rfkill not found. Installing..."
+    sudo apt-get update
     sudo apt-get install -y rfkill
-    echo "Installed rfkill utility for future wireless management."
+    echo "Installed rfkill utility for wireless management."
 fi
 
 # Update system
-echo -e "\n[1/9] Updating system packages..."
+echo -e "\n[1/5] Updating system packages..."
 sudo apt-get update
 sudo apt-get upgrade -y
 
-# Install system dependencies
-echo -e "\n[2/9] Installing system dependencies..."
-sudo apt-get install -y vlc python3-pip python3-venv git
+# Install system dependencies (VLC should already be installed on desktop)
+echo -e "\n[2/5] Installing system dependencies..."
+sudo apt-get install -y python3-pip python3-venv git curl
 
-# Install USB automount
-echo -e "\n[3/9] Installing USB automount..."
-sudo apt-get install -y git debhelper build-essential
-git clone https://github.com/rbrito/usbmount.git
-cd usbmount
-sudo dpkg-buildpackage -us -uc -b
-cd ..
-sudo apt-get update
-sudo apt --fix-broken install -y
-sudo dpkg -i usbmount_0.0.24_all.deb
-echo "USB automount installed successfully."
+# Verify VLC is installed
+if ! command -v vlc &> /dev/null; then
+    echo "VLC not found. Installing VLC..."
+    sudo apt-get install -y vlc
+else
+    echo "VLC is already installed."
+fi
 
-# Install exFAT support and set up mounting points
-echo -e "\n[4/9] Setting up exFAT support and USB mounting points..."
-sudo apt-get update
-sudo apt-get install -y exfat-fuse exfatprogs
+# Install Docker
+echo -e "\n[3/5] Installing Docker..."
+if ! command -v docker &> /dev/null; then
+    echo "Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    sudo usermod -aG docker $USER
+    rm get-docker.sh
+    echo "Docker installed. You may need to log out and back in for group changes to take effect."
+else
+    echo "Docker is already installed."
+fi
 
-# Create mounting points
-echo "Creating USB mounting points..."
-sudo mkdir -p /media/pi/MUSIC
-sudo mkdir -p /media/pi/PLAY_CARD
-sudo chown pi:pi /media/pi/MUSIC
-sudo chown pi:pi /media/pi/PLAY_CARD
-
-# Update fstab
-echo "Updating fstab for persistent mounts..."
-sudo bash -c "cat >> /etc/fstab << EOL
-LABEL=PLAY_CARD   /media/pi/PLAY_CARD   exfat   defaults,nofail   0   0
-LABEL=MUSIC   /media/pi/MUSIC  exfat   defaults,nofail   0   0
-EOL"
-
-# Create mount files
-echo "Creating mount files..."
-sudo bash -c "cat > /etc/systemd/system/media-pi-PLAY_CARD.mount << EOL
-[Unit]
-Description=Mount a USB labeled PLAY_CARD at /media/pi/PLAY_CARD
-After=local-fs.target
-
-[Mount]
-Where=/media/pi/PLAY_CARD
-What=LABEL=PLAY_CARD
-Type=exfat
-Options=defaults
-
-[Install]
-WantedBy=multi-user.target
-EOL"
-
-sudo bash -c "cat > /etc/systemd/system/media-pi-MUSIC.mount << EOL
-[Unit]
-Description=Mount a USB labeled MUSIC at /media/pi/MUSIC
-After=local-fs.target
-
-[Mount]
-Where=/media/pi/MUSIC
-What=LABEL=MUSIC
-Type=exfat
-Options=defaults
-
-[Install]
-WantedBy=multi-user.target
-EOL"
-
-# Create automount files
-echo "Creating automount files for hotswap support..."
-sudo bash -c "cat > /etc/systemd/system/media-pi-PLAY_CARD.automount << EOL
-[Unit]
-Description=Automount for /media/pi/PLAY_CARD
-
-[Automount]
-Where=/media/pi/PLAY_CARD
-
-[Install]
-WantedBy=multi-user.target
-EOL"
-
-sudo bash -c "cat > /etc/systemd/system/media-pi-MUSIC.automount << EOL
-[Unit]
-Description=Automount for /media/pi/MUSIC
-
-[Automount]
-Where=/media/pi/MUSIC
-
-[Install]
-WantedBy=multi-user.target
-EOL"
-
-# Enable mount and automount services
-echo "Enabling mount and automount services..."
-sudo systemctl daemon-reload
-sudo systemctl enable media-pi-PLAY_CARD.mount
-sudo systemctl enable media-pi-MUSIC.mount
-sudo systemctl enable media-pi-PLAY_CARD.automount
-sudo systemctl enable media-pi-MUSIC.automount
-sudo systemctl start media-pi-PLAY_CARD.automount
-sudo systemctl start media-pi-MUSIC.automount
-echo "USB mounting configuration completed successfully."
+# Install Docker Compose
+if ! command -v docker-compose &> /dev/null; then
+    echo "Installing Docker Compose..."
+    sudo pip3 install docker-compose
+else
+    echo "Docker Compose is already installed."
+fi
 
 # Set up auto hotspot
-echo -e "\n[5/9] Setting up auto hotspot..."
+echo -e "\n[4/5] Setting up auto hotspot..."
 sudo apt-get update
 
 # Install and verify hostapd and dnsmasq
@@ -196,7 +141,7 @@ EOL"
 
 # Configure dnsmasq
 echo "Configuring dnsmasq..."
-sudo mv /etc/dnsmasq.conf /etc/dnsmasq.conf.orig
+sudo mv /etc/dnsmasq.conf /etc/dnsmasq.conf.orig 2>/dev/null || true
 sudo bash -c "cat > /etc/dnsmasq.conf << EOL
 interface=wlan0
 dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
@@ -266,66 +211,81 @@ sudo systemctl enable dnsmasq
 sudo systemctl enable auto-hotspot.service
 
 echo "Auto hotspot configured with name: $HOTSPOT_NAME and password: $HOTSPOT_PASSWORD"
-echo "The hotspot will be available after reboot."
 
-# Install Node.js
-echo -e "\n[6/9] Installing Node.js..."
-if ! command -v node &> /dev/null; then
-    curl -fsSL https://deb.nodesource.com/setup_16.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-else
-    echo "Node.js is already installed."
-fi
+# Set up Docker service for boot launch
+echo -e "\n[5/5] Setting up Docker service for boot launch..."
+CURRENT_DIR=$(pwd)
 
-# Set up Python virtual environment
-echo -e "\n[7/9] Setting up Python virtual environment..."
-python3 -m venv venv
-source venv/bin/activate
+# Create USB mount directories
+echo "Creating USB mount directories..."
+sudo mkdir -p /media/pi/MUSIC /media/pi/PLAY_CARD
+sudo chown pi:pi /media/pi/MUSIC /media/pi/PLAY_CARD
 
-# Install Python dependencies
-echo -e "\n[8/9] Installing Python dependencies..."
-pip install -r requirements.txt
+# Create Docker startup script
+sudo bash -c "cat > /usr/local/bin/start_music_player.sh << EOL
+#!/bin/bash
+cd $CURRENT_DIR
+echo \"Starting music player...\"
+docker-compose down 2>/dev/null || true
+docker-compose up -d
+EOL"
+sudo chmod +x /usr/local/bin/start_music_player.sh
 
-# Build frontend
-echo -e "\n[9/9] Building the frontend..."
-cd frontend
-npm install
-npm run build
-cd ..
-
-# Create systemd service
-echo -e "\n[Optional] Setting up systemd service..."
-read -p "Do you want to set up the music player to start automatically on boot? (y/n): " setup_service
-
-if [[ $setup_service == "y" || $setup_service == "Y" ]]; then
-    SERVICE_PATH="/etc/systemd/system/music-player.service"
-    CURRENT_DIR=$(pwd)
-    
-    sudo bash -c "cat > $SERVICE_PATH << EOL
+# Create systemd service for music player
+sudo bash -c "cat > /etc/systemd/system/music-player-docker.service << EOL
 [Unit]
-Description=Raspberry Pi Music Player
-After=network.target media-pi-MUSIC.mount media-pi-PLAY_CARD.mount auto-hotspot.service
-Requires=media-pi-MUSIC.mount media-pi-PLAY_CARD.mount
+Description=USB Music Player Docker Service
+After=docker.service auto-hotspot.service
+Requires=docker.service
+Wants=auto-hotspot.service
 
 [Service]
-User=$USER
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/start_music_player.sh
+ExecStop=$CURRENT_DIR/docker-compose down
 WorkingDirectory=$CURRENT_DIR
-ExecStart=$CURRENT_DIR/venv/bin/python $CURRENT_DIR/main.py
-Restart=on-failure
-RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
 EOL"
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable music-player.service
-    sudo systemctl start music-player.service
-    
-    echo "Service installed and started. Check status with: sudo systemctl status music-player.service"
-else
-    echo "Skipping service setup. You can start the player manually with: python main.py"
-fi
+# Enable Docker and music player services
+echo "Enabling Docker and music player services..."
+sudo systemctl daemon-reload
+sudo systemctl enable docker
+sudo systemctl enable music-player-docker.service
+
+# Build the Docker image
+echo "Building Docker image..."
+docker-compose build
+
+# Create config and logs directories
+mkdir -p config logs
+
+echo -e "\n=== Installation Complete! ==="
+echo "=== Important Notes ==="
+echo "1. USB devices will be auto-mounted by the desktop environment"
+echo "2. Label your USB drives as 'MUSIC' for music files and 'PLAY_CARD' for control files"
+echo "3. The music player will start automatically on boot"
+echo ""
+echo "=== How to Access the Music Player ==="
+echo "1. Connect to the Wi-Fi hotspot: $HOTSPOT_NAME"
+echo "2. Password: $HOTSPOT_PASSWORD"
+echo "3. Open a web browser and navigate to: http://slab.local:5000"
+echo ""
+echo "You can also access using the IP address: http://192.168.4.1:5000"
+echo ""
+echo "=== Manual Control ==="
+echo "Start: sudo systemctl start music-player-docker.service"
+echo "Stop: sudo systemctl stop music-player-docker.service"
+echo "Status: sudo systemctl status music-player-docker.service"
+echo "Logs: docker-compose logs -f"
+echo ""
+echo "=== Next Steps ==="
+echo "1. Reboot your Raspberry Pi to start all services"
+echo "2. Insert your USB drives (they'll be auto-mounted)"
+echo "3. Connect to the hotspot and access the web interface"
 
 # Final check for RF kill before completion
 echo -e "\nPerforming final wireless check..."
@@ -338,11 +298,4 @@ if command -v rfkill &> /dev/null; then
     fi
 fi
 
-echo -e "\n=== Installation Complete! ==="
-echo "=== How to Access the Music Player ==="
-echo "1. Connect to the Wi-Fi hotspot: $HOTSPOT_NAME"
-echo "2. Password: $HOTSPOT_PASSWORD"
-echo "3. Open a web browser and navigate to: http://slab.local:5000"
-echo ""
-echo "You can also access using the IP address: http://192.168.4.1:5000"
-echo "To start the player manually: source venv/bin/activate && python main.py" 
+echo -e "\nReboot now to start all services: sudo reboot" 

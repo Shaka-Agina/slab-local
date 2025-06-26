@@ -5,10 +5,10 @@ import os
 import time
 import threading
 import glob
-from config import CONTROL_USB_MOUNT, CONTROL_FILE_NAME, MUSIC_USB_MOUNT
+from config import CONTROL_FILE_NAME, MUSIC_USB_MOUNT
 from player import player
 from web_interface import start_flask_app
-from utils import log_message, usb_is_mounted, find_album_folder
+from utils import log_message, find_album_folder, find_control_usb
 
 def main_loop():
     """
@@ -19,12 +19,13 @@ def main_loop():
     """
     previously_mounted = False
     while True:
-        if usb_is_mounted(CONTROL_USB_MOUNT):
+        control_usb = find_control_usb()
+        if control_usb:
             if not previously_mounted:
-                log_message("Control USB mounted. Restarting playback from control file.")
+                log_message(f"Control USB mounted at {control_usb}. Restarting playback from control file.")
                 previously_mounted = True
                 player.stop()
-                control_file_path = os.path.join(CONTROL_USB_MOUNT, CONTROL_FILE_NAME)
+                control_file_path = os.path.join(control_usb, CONTROL_FILE_NAME)
                 if os.path.isfile(control_file_path):
                     with open(control_file_path, "r") as f:
                         request_line = f.read().strip()
@@ -40,6 +41,7 @@ def main_loop():
                     elif request_line.startswith("Track:"):
                         track_name = request_line.replace("Track:", "").strip()
                         log_message(f"Track requested: {track_name}")
+                        
                         escaped_track = glob.escape(track_name)
                         matching_tracks = glob.glob(
                             os.path.join(MUSIC_USB_MOUNT, "**", f"{escaped_track}*"),

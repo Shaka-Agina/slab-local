@@ -7,12 +7,13 @@ import configparser
 def load_config():
     """Load configuration from config.ini or create with defaults if not exists"""
     config = configparser.ConfigParser()
+    
     config['DEFAULT'] = {
-        'MUSIC_USB_MOUNT': '/media/pi/MUSIC',
-        'CONTROL_USB_MOUNT': '/media/pi/PLAY_CARD',
-        'CONTROL_FILE_NAME': 'playMusic.txt',
-        'WEB_PORT': '5000',
-        'DEFAULT_VOLUME': '70'
+        'MUSIC_USB_MOUNT': os.environ.get('MUSIC_USB_MOUNT', '/media/pi/MUSIC'),
+        'CONTROL_USB_MOUNT': os.environ.get('CONTROL_USB_MOUNT', '/media/pi/PLAY_CARD'),
+        'CONTROL_FILE_NAME': os.environ.get('CONTROL_FILE_NAME', 'playMusic.txt'),
+        'WEB_PORT': os.environ.get('WEB_PORT', '5000'),
+        'DEFAULT_VOLUME': os.environ.get('DEFAULT_VOLUME', '70')
     }
     
     if os.path.exists('config.ini'):
