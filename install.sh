@@ -45,7 +45,28 @@ fi
 # Update system
 echo -e "\n[1/5] Updating system packages..."
 sudo apt-get update
-sudo apt-get upgrade -y
+
+# Fix any broken VLC packages before upgrading system
+echo "Checking for package conflicts before system upgrade..."
+if dpkg -l | grep -q vlc; then
+    echo "VLC packages detected. Preventing conflicts during upgrade..."
+    
+    # Fix any currently broken packages
+    sudo apt-get install -f -y || true
+    
+    # Hold VLC packages to prevent conflicts during upgrade
+    sudo apt-mark hold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
+    
+    # Perform system upgrade
+    sudo apt-get upgrade -y
+    
+    # Unhold VLC packages after upgrade
+    sudo apt-mark unhold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
+    
+    echo "System upgrade completed. VLC packages preserved."
+else
+    sudo apt-get upgrade -y
+fi
 
 # Install system dependencies (VLC should already be installed on desktop)
 echo -e "\n[2/5] Installing system dependencies..."

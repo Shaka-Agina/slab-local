@@ -34,7 +34,28 @@ fi
 # Update system
 print_status "Updating system packages..."
 sudo apt-get update
-sudo apt-get upgrade -y
+
+# Fix any broken VLC packages before upgrading system
+print_status "Checking for package conflicts before system upgrade..."
+if dpkg -l | grep -q vlc; then
+    print_status "VLC packages detected. Preventing conflicts during upgrade..."
+    
+    # Fix any currently broken packages
+    sudo apt-get install -f -y || true
+    
+    # Hold VLC packages to prevent conflicts during upgrade
+    sudo apt-mark hold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
+    
+    # Perform system upgrade
+    sudo apt-get upgrade -y
+    
+    # Unhold VLC packages after upgrade
+    sudo apt-mark unhold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
+    
+    print_status "System upgrade completed. VLC packages preserved."
+else
+    sudo apt-get upgrade -y
+fi
 
 # Install Docker if not present
 if ! command -v docker &> /dev/null; then

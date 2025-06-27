@@ -188,6 +188,17 @@ sudo systemctl stop auto-hotspot.service
 
 ### VLC Package Issues
 If you encounter VLC dependency conflicts during installation:
+
+**During System Upgrade:**
+1. VLC packages may conflict during `apt-get upgrade`. The scripts now automatically handle this by temporarily holding VLC packages during upgrade.
+2. If you encounter this manually, run:
+   ```bash
+   sudo apt-mark hold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2
+   sudo apt-get upgrade -y
+   sudo apt-mark unhold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2
+   ```
+
+**General VLC Fixes:**
 1. Fix broken packages: `sudo apt-get install -f`
 2. Update package lists: `sudo apt-get update`
 3. Reinstall VLC components: `sudo apt-get install --reinstall vlc-bin vlc-plugin-base`
