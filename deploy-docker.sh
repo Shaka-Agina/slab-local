@@ -42,6 +42,28 @@ print_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
 }
 
+# Timeout function to prevent hanging
+run_with_timeout() {
+    local timeout=$1
+    shift
+    timeout $timeout "$@"
+}
+
+# Progress indicator for long operations
+show_progress() {
+    local pid=$1
+    local message=$2
+    local spinner='|/-\'
+    local i=0
+    
+    while kill -0 $pid 2>/dev/null; do
+        printf "\r${GREEN}[INFO]${NC} $message ${spinner:$i:1}"
+        i=$(((i+1)%4))
+        sleep 0.5
+    done
+    printf "\r${GREEN}[INFO]${NC} $message... Done!\n"
+}
+
 # Check if running on Raspberry Pi
 if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
     print_warning "This script is designed for Raspberry Pi. Continuing anyway..."
@@ -118,19 +140,31 @@ fi
 
 # Activate Docker group permissions immediately
 print_status "Activating Docker group permissions..."
-if ! docker ps >/dev/null 2>&1; then
-    print_status "Activating new group membership for Docker access..."
-    # Method 1: Try with newgrp (this works in some cases)
-    if ! newgrp docker -c 'docker ps' >/dev/null 2>&1; then
-        print_warning "Group activation didn't work immediately. Will use sudo for Docker commands."
-        USE_SUDO_DOCKER="yes"
-    else
-        print_status "Docker group activated successfully"
-        USE_SUDO_DOCKER="no"
-    fi
-else
-    print_status "Docker access already working"
+
+# Start Docker service if it's not running
+if ! systemctl is-active --quiet docker; then
+    print_status "Starting Docker service..."
+    sudo systemctl start docker
+    sleep 3
+fi
+
+# Test Docker permissions without using newgrp (which can hang)
+print_status "Testing Docker access permissions..."
+
+# Test without sudo first (with timeout)
+if run_with_timeout 10 docker ps >/dev/null 2>&1; then
+    print_status "Docker access working without sudo"
     USE_SUDO_DOCKER="no"
+# Test with sudo (with timeout)
+elif run_with_timeout 10 sudo docker ps >/dev/null 2>&1; then
+    print_warning "Docker requires sudo access (group permissions not active yet)"
+    print_status "This is normal for fresh installations - will use sudo for Docker commands"
+    USE_SUDO_DOCKER="yes"
+else
+    print_error "Docker is not responding properly. Checking Docker service status..."
+    sudo systemctl status docker --no-pager || true
+    print_error "Please check Docker installation and try again."
+    exit 1
 fi
 
 # Step 4: Install/check VLC
@@ -207,22 +241,43 @@ else
 fi
 
 # Stop any existing container
-$DOCKER_CMD down 2>/dev/null || true
+run_with_timeout 30 $DOCKER_CMD down 2>/dev/null || true
 
 # Build the image
-print_status "Building Docker image..."
-$DOCKER_CMD build
+print_status "Building Docker image (this may take several minutes)..."
+$DOCKER_CMD build &
+BUILD_PID=$!
+
+# Show progress while building
+show_progress $BUILD_PID "Building Docker image"
+
+# Wait for build to complete and check result
+if ! wait $BUILD_PID; then
+    print_error "Docker build failed. This might be due to:"
+    echo "  • Slow internet connection"
+    echo "  • Docker daemon issues"
+    echo "  • Insufficient disk space"
+    echo "  • Missing dependencies"
+    print_status "Checking Docker service status..."
+    sudo systemctl status docker --no-pager || true
+    exit 1
+fi
 
 # Start the container
 print_status "Starting container..."
-$DOCKER_CMD up -d
+if ! run_with_timeout 60 $DOCKER_CMD up -d; then
+    print_error "Failed to start container. Checking logs..."
+    $DOCKER_CMD logs || true
+    exit 1
+fi
 
 # Wait for container to be ready
 print_status "Waiting for container to start..."
 sleep 10
 
 # Check container status
-if $DOCKER_CMD ps | grep -q "Up"; then
+print_status "Checking container status..."
+if run_with_timeout 15 $DOCKER_CMD ps | grep -q "Up"; then
     print_status "Container started successfully!"
     
     echo ""
