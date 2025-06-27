@@ -18,8 +18,12 @@ def main_loop():
       - On unmount, always stop playback.
     """
     previously_mounted = False
+    log_message("Starting USB monitoring loop...")
+    
     while True:
         control_usb = find_control_usb()
+        
+        # Debug logging
         if control_usb:
             if not previously_mounted:
                 log_message(f"Control USB mounted at {control_usb}. Restarting playback from control file.")
@@ -55,11 +59,18 @@ def main_loop():
                         log_message("Error: playMusic.txt not in valid format. Use 'Album: <folder>' or 'Track: <filename>'.")
                 else:
                     log_message(f"{CONTROL_FILE_NAME} not found on Control USB.")
+            # If already mounted, only log occasionally to reduce spam
+            elif int(time.time()) % 30 == 0:  # Log every 30 seconds when mounted
+                log_message(f"Control USB still mounted at {control_usb}")
         else:
             if previously_mounted:
                 log_message("Control USB unmounted. Stopping playback.")
                 previously_mounted = False
                 player.stop()
+            # If not mounted, only log occasionally to reduce spam  
+            elif int(time.time()) % 30 == 0:  # Log every 30 seconds when not mounted
+                log_message("Control USB not detected")
+                
         time.sleep(2)
 
 if __name__ == "__main__":

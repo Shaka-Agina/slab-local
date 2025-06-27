@@ -4,8 +4,9 @@
 import os
 import time
 import glob
+import subprocess
 from urllib.parse import unquote
-from config import MUSIC_USB_MOUNT, CONTROL_USB_MOUNT
+from config import MUSIC_USB_MOUNT, CONTROL_USB_MOUNT, CONTROL_FILE_NAME
 
 # Global log variable
 log_messages = []
@@ -18,19 +19,41 @@ def log_message(msg):
     print(message)
 
 def usb_is_mounted(mount_path):
-    """Return True if mount_path is mounted, else False."""
-    if not os.path.ismount(mount_path):
-        return False
+    """Return True if mount_path is accessible and has content, else False."""
     try:
-        os.listdir(mount_path)
+        # First check if the path exists
+        if not os.path.exists(mount_path):
+            return False
+        
+        # Check if we can list the directory contents
+        # This works better in Docker than os.path.ismount()
+        contents = os.listdir(mount_path)
+        
+        # For USB drives, we expect at least some content or ability to write
+        # An empty directory might indicate the USB is not mounted
+        # But we'll be more permissive and just check if the path is accessible
+        log_message(f"Mount check for {mount_path}: accessible with {len(contents)} items")
         return True
-    except OSError:
+        
+    except (OSError, PermissionError) as e:
+        log_message(f"Mount check for {mount_path}: not accessible - {str(e)}")
         return False
 
 def find_control_usb():
     """Find mounted USB device for control files."""
+    log_message(f"Checking for control USB at {CONTROL_USB_MOUNT}")
+    
     if usb_is_mounted(CONTROL_USB_MOUNT):
-        return CONTROL_USB_MOUNT
+        # Additional check: verify the control file exists
+        control_file_path = os.path.join(CONTROL_USB_MOUNT, CONTROL_FILE_NAME)
+        if os.path.isfile(control_file_path):
+            log_message(f"Control USB found at {CONTROL_USB_MOUNT} with control file")
+            return CONTROL_USB_MOUNT
+        else:
+            log_message(f"Control USB directory exists at {CONTROL_USB_MOUNT} but no control file found")
+            return None
+    
+    log_message(f"Control USB not found at {CONTROL_USB_MOUNT}")
     return None
 
 def format_track_name(filename):
