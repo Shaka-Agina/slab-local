@@ -2,6 +2,17 @@
 
 # Music Player Installation Script for Desktop Environment
 
+# Set non-interactive mode to prevent prompts
+export DEBIAN_FRONTEND=noninteractive
+
+# Configure automatic service restarts
+echo 'libc6 libraries/restart-without-asking boolean true' | sudo debconf-set-selections
+echo '* libraries/restart-without-asking boolean true' | sudo debconf-set-selections
+
+# Configure needrestart to not prompt
+sudo mkdir -p /etc/needrestart/conf.d
+echo '$nrconf{restart} = "a";' | sudo tee /etc/needrestart/conf.d/50-auto.conf > /dev/null
+
 echo "=== Raspberry Pi Music Player Installation (Desktop Environment) ==="
 echo "This script will install all dependencies and set up the music player."
 echo "Note: This script assumes you're running Raspberry Pi OS with Desktop Environment"
@@ -37,14 +48,14 @@ if command -v rfkill &> /dev/null; then
     rfkill list wifi
 else
     echo "rfkill not found. Installing..."
-    sudo apt-get update
-    sudo apt-get install -y rfkill
+    sudo DEBIAN_FRONTEND=noninteractive apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y rfkill
     echo "Installed rfkill utility for wireless management."
 fi
 
 # Update system
 echo -e "\n[1/5] Updating system packages..."
-sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get update
 
 # Fix any broken VLC packages before upgrading system
 echo "Checking for package conflicts before system upgrade..."
@@ -52,25 +63,25 @@ if dpkg -l | grep -q vlc; then
     echo "VLC packages detected. Preventing conflicts during upgrade..."
     
     # Fix any currently broken packages
-    sudo apt-get install -f -y || true
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -f -y || true
     
     # Hold VLC packages to prevent conflicts during upgrade
     sudo apt-mark hold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
     
     # Perform system upgrade
-    sudo apt-get upgrade -y
+    sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
     
     # Unhold VLC packages after upgrade
     sudo apt-mark unhold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
     
     echo "System upgrade completed. VLC packages preserved."
 else
-    sudo apt-get upgrade -y
+    sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 fi
 
 # Install system dependencies (VLC should already be installed on desktop)
 echo -e "\n[2/5] Installing system dependencies..."
-sudo apt-get install -y python3-pip python3-venv git curl
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python3-venv git curl
 
 # Verify VLC is installed and working
 echo "Checking VLC installation..."
@@ -82,14 +93,14 @@ if command -v vlc &> /dev/null; then
         echo "VLC is working correctly."
     else
         echo "VLC installation may be broken. Attempting repair..."
-        sudo apt-get install -f
-        sudo apt-get install --reinstall vlc-bin vlc-plugin-base
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -f
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install --reinstall vlc-bin vlc-plugin-base
     fi
 else
     echo "VLC not found. Installing with dependency resolution..."
-    sudo apt-get update
-    sudo apt-get install -f  # Fix any broken packages first
-    sudo apt-get install -y vlc
+    sudo DEBIAN_FRONTEND=noninteractive apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -f  # Fix any broken packages first
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y vlc
 fi
 
 # Install Docker
@@ -169,17 +180,17 @@ fi
 
 # Set up auto hotspot
 echo -e "\n[4/5] Setting up auto hotspot..."
-sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get update
 
 # Install and verify hostapd and dnsmasq
 echo "Installing hostapd and dnsmasq..."
-sudo apt-get install -y hostapd dnsmasq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y hostapd dnsmasq
 
 # Verify installation
 if ! dpkg -l | grep -q hostapd || ! dpkg -l | grep -q dnsmasq; then
     echo "ERROR: Failed to install hostapd or dnsmasq. Retrying..."
-    sudo apt-get update
-    sudo apt-get install -y --reinstall hostapd dnsmasq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall hostapd dnsmasq
     
     # Check again
     if ! dpkg -l | grep -q hostapd || ! dpkg -l | grep -q dnsmasq; then

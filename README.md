@@ -4,7 +4,7 @@ A USB-triggered music player for Raspberry Pi that automatically plays music whe
 
 ## 🚀 One-Command Installation (Recommended)
 
-Get up and running in minutes with our automated installer that does everything for you:
+Get up and running in minutes with our **fully automated installer** that does everything for you:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Shaka-Agina/slab-local/main/deploy-docker.sh | bash
@@ -19,6 +19,8 @@ curl -fsSL https://raw.githubusercontent.com/Shaka-Agina/slab-local/main/deploy-
 - ✅ Build and deploy the Docker container
 - ✅ Configure auto-start service for boot
 - ✅ Set up audio permissions and VLC integration
+
+**🎯 Completely hands-off:** No prompts, no user input required - just run and wait!
 
 **Requirements:**
 - Raspberry Pi running Raspberry Pi OS **with Desktop Environment**

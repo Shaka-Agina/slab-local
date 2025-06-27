@@ -4,6 +4,17 @@
 
 set -e
 
+# Set non-interactive mode to prevent prompts
+export DEBIAN_FRONTEND=noninteractive
+
+# Configure automatic service restarts
+echo 'libc6 libraries/restart-without-asking boolean true' | sudo debconf-set-selections
+echo '* libraries/restart-without-asking boolean true' | sudo debconf-set-selections
+
+# Configure needrestart to not prompt
+sudo mkdir -p /etc/needrestart/conf.d
+echo '$nrconf{restart} = "a";' | sudo tee /etc/needrestart/conf.d/50-auto.conf > /dev/null
+
 echo "=== USB Music Player One-Click Installation ==="
 echo "This script will clone the repository, build the application, and deploy everything."
 
@@ -50,7 +61,7 @@ fi
 
 # Step 1: Update system
 print_step "1/8 - Updating system packages..."
-sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get update
 
 # Fix any broken VLC packages before upgrading system
 print_status "Checking for package conflicts before system upgrade..."
@@ -58,25 +69,25 @@ if dpkg -l | grep -q vlc; then
     print_status "VLC packages detected. Preventing conflicts during upgrade..."
     
     # Fix any currently broken packages
-    sudo apt-get install -f -y || true
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -f -y || true
     
     # Hold VLC packages to prevent conflicts during upgrade
     sudo apt-mark hold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
     
     # Perform system upgrade
-    sudo apt-get upgrade -y
+    sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
     
     # Unhold VLC packages after upgrade
     sudo apt-mark unhold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2 2>/dev/null || true
     
     print_status "System upgrade completed. VLC packages preserved."
 else
-    sudo apt-get upgrade -y
+    sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 fi
 
 # Step 2: Install system dependencies
 print_step "2/8 - Installing system dependencies..."
-sudo apt-get install -y git curl nodejs npm python3-pip python3-venv
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git curl nodejs npm python3-pip python3-venv
 
 # Step 3: Install Docker
 print_step "3/8 - Installing Docker..."
@@ -94,7 +105,7 @@ fi
 # Install Docker Compose if not present
 if ! command -v docker-compose &> /dev/null; then
     print_status "Installing Docker Compose..."
-    sudo apt-get install -y docker-compose
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose
     print_status "Docker Compose installed successfully"
 else
     print_status "Docker Compose is already installed"
@@ -110,13 +121,13 @@ if command -v vlc &> /dev/null; then
         print_status "VLC is working correctly"
     else
         print_warning "VLC installation may be broken. Attempting repair..."
-        sudo apt-get install -f
-        sudo apt-get install --reinstall -y vlc-bin vlc-plugin-base
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -f
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y vlc-bin vlc-plugin-base
     fi
 else
     print_status "Installing VLC..."
-    sudo apt-get install -f  # Fix any broken packages first
-    sudo apt-get install -y vlc vlc-plugin-base
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -f  # Fix any broken packages first
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y vlc vlc-plugin-base
 fi
 
 # Step 5: Clone repository
