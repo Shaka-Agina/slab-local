@@ -314,10 +314,12 @@ echo "Auto hotspot configured with name: $HOTSPOT_NAME and password: $HOTSPOT_PA
 echo -e "\n[5/5] Setting up Docker service for boot launch..."
 CURRENT_DIR=$(pwd)
 
-# Create USB mount directories
-echo "Creating USB mount directories..."
-sudo mkdir -p /media/pi/MUSIC /media/pi/PLAY_CARD
-sudo chown pi:pi /media/pi/MUSIC /media/pi/PLAY_CARD
+# Set up USB auto-mounting for dynamic drives
+echo "Setting up USB auto-mounting..."
+sudo apt-get install -y udisks2 exfat-fuse exfatprogs
+sudo mkdir -p /media/pi
+sudo chown pi:pi /media/pi
+echo "USB auto-mounting configured - drives labeled 'MUSIC' and 'PLAY_CARD' will auto-mount when plugged in"
 
 # Create Docker startup script
 sudo bash -c "cat > /usr/local/bin/start_music_player.sh << EOL

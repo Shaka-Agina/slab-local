@@ -213,12 +213,24 @@ npm run build
 print_status "Frontend build completed successfully"
 cd ..
 
-# Step 7: Set up USB mount points (for desktop auto-mounting)
-print_step "7/8 - Setting up USB mount points..."
-sudo mkdir -p /media/pi/MUSIC
-sudo mkdir -p /media/pi/PLAY_CARD
-sudo chown pi:pi /media/pi/MUSIC /media/pi/PLAY_CARD
-print_status "USB mount points created (will be used by desktop auto-mounting)"
+# Step 7: Set up USB auto-mounting (for when drives are plugged in)
+print_step "7/8 - Setting up USB auto-mounting..."
+
+# Install necessary packages for USB auto-mounting
+print_status "Installing USB mounting utilities..."
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y udisks2 exfat-fuse exfatprogs
+
+# Ensure the mount point directory exists (but don't create the specific USB folders)
+sudo mkdir -p /media/pi
+sudo chown pi:pi /media/pi
+
+# Note: The actual MUSIC and PLAY_CARD directories will be created automatically 
+# when USB drives with those labels are plugged in
+
+print_status "USB auto-mounting configured"
+print_status "When you plug in USB drives labeled 'MUSIC' and 'PLAY_CARD', they will auto-mount to:"
+print_status "  • Music USB: /media/pi/MUSIC"
+print_status "  • Control USB: /media/pi/PLAY_CARD"
 
 # Create necessary directories for Docker volumes
 print_status "Creating Docker volume directories..."
@@ -292,9 +304,14 @@ if run_with_timeout 15 $DOCKER_CMD ps | grep -q "Up"; then
     echo "   • http://$(hostname -I | awk '{print $1}'):5000"
     echo ""
     echo "💾 USB Drive Setup:"
-    echo "   • Label your music USB drive as 'MUSIC'"
-    echo "   • Label your control USB drive as 'PLAY_CARD'"
+    echo "   • Label your music USB drive as 'MUSIC' (case-sensitive)"
+    echo "   • Label your control USB drive as 'PLAY_CARD' (case-sensitive)"
     echo "   • Create a file named 'playMusic.txt' on the PLAY_CARD drive"
+    echo "   • When plugged in, drives will auto-mount to /media/pi/MUSIC and /media/pi/PLAY_CARD"
+    echo ""
+    echo "🔌 Important: USB drives must be physically plugged in for the system to work!"
+    echo "   • The application detects when drives are inserted and removed"
+    echo "   • Make sure drives are properly labeled before plugging them in"
     echo ""
     echo "⚙️  Container Management:"
     if [ "$USE_SUDO_DOCKER" = "yes" ]; then
@@ -369,7 +386,9 @@ echo ""
 echo "💡 Tips:"
 echo "   • Reboot to test auto-start: sudo reboot"
 echo "   • Check service status: sudo systemctl status usb-music-player.service"
-echo "   • USB drives will be automatically mounted when inserted"
+echo "   • Test USB detection: plug in your USB drives and check if they appear in /media/pi/"
+echo "   • Monitor USB mounting: watch ls -la /media/pi/"
+echo "   • View application logs: cd $INSTALL_DIR && $DOCKER_CMD logs -f"
 echo ""
 
 # Note about Docker group

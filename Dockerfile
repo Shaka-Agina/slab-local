@@ -44,8 +44,8 @@ COPY utils.py ./
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
-# Create necessary directories for USB mounts
-RUN mkdir -p /media/pi/MUSIC /media/pi/PLAY_CARD && \
+# Create necessary directories structure (USB mounts will be handled by host system)
+RUN mkdir -p /media/pi && \
     chown -R appuser:appuser /media/pi /app
 
 # Create config directory
