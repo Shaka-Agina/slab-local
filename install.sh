@@ -51,12 +51,24 @@ sudo apt-get upgrade -y
 echo -e "\n[2/5] Installing system dependencies..."
 sudo apt-get install -y python3-pip python3-venv git curl
 
-# Verify VLC is installed
-if ! command -v vlc &> /dev/null; then
-    echo "VLC not found. Installing VLC..."
-    sudo apt-get install -y vlc
-else
+# Verify VLC is installed and working
+echo "Checking VLC installation..."
+if command -v vlc &> /dev/null; then
     echo "VLC is already installed."
+    
+    # Test VLC functionality
+    if vlc --version >/dev/null 2>&1; then
+        echo "VLC is working correctly."
+    else
+        echo "VLC installation may be broken. Attempting repair..."
+        sudo apt-get install -f
+        sudo apt-get install --reinstall vlc-bin vlc-plugin-base
+    fi
+else
+    echo "VLC not found. Installing with dependency resolution..."
+    sudo apt-get update
+    sudo apt-get install -f  # Fix any broken packages first
+    sudo apt-get install -y vlc
 fi
 
 # Install Docker

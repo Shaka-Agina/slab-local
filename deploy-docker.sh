@@ -59,7 +59,26 @@ fi
 
 # Install system dependencies for USB mounting
 print_status "Installing USB mounting dependencies..."
-sudo apt-get install -y exfat-fuse exfatprogs usbmount
+sudo apt-get install -y exfat-fuse exfatprogs usbmount git
+
+# Install VLC for audio playback (if not already present)
+print_status "Checking VLC installation..."
+if command -v vlc &> /dev/null; then
+    print_status "VLC is already installed"
+    
+    # Test VLC functionality
+    if vlc --version >/dev/null 2>&1; then
+        print_status "VLC is working correctly"
+    else
+        print_warning "VLC installation may be broken. Attempting repair..."
+        sudo apt-get install -f
+        sudo apt-get install --reinstall -y vlc-bin vlc-plugin-base
+    fi
+else
+    print_status "Installing VLC..."
+    sudo apt-get install -f  # Fix any broken packages first
+    sudo apt-get install -y vlc vlc-plugin-base
+fi
 
 # Create USB mounting points
 print_status "Setting up USB mounting points..."
