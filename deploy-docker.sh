@@ -1,16 +1,17 @@
 #!/bin/bash
 
-# USB Music Player Docker Deployment Script for Raspberry Pi
+# USB Music Player One-Click Installation Script for Raspberry Pi
 
 set -e
 
-echo "=== USB Music Player Docker Deployment ==="
-echo "This script will set up Docker and deploy the music player container."
+echo "=== USB Music Player One-Click Installation ==="
+echo "This script will clone the repository, build the application, and deploy everything."
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Function to print colored output
@@ -26,13 +27,29 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+print_step() {
+    echo -e "${BLUE}[STEP]${NC} $1"
+}
+
 # Check if running on Raspberry Pi
 if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
     print_warning "This script is designed for Raspberry Pi. Continuing anyway..."
 fi
 
-# Update system
-print_status "Updating system packages..."
+# Check if running on desktop environment
+if [ -n "$DISPLAY" ] || systemctl is-active --quiet graphical.target 2>/dev/null; then
+    print_status "Desktop environment detected - will use built-in USB auto-mounting"
+else
+    print_warning "No desktop environment detected. USB auto-mounting may not work."
+    read -p "Continue anyway? (y/N): " continue_anyway
+    if [[ ! $continue_anyway =~ ^[Yy]$ ]]; then
+        echo "Installation cancelled."
+        exit 1
+    fi
+fi
+
+# Step 1: Update system
+print_step "1/8 - Updating system packages..."
 sudo apt-get update
 
 # Fix any broken VLC packages before upgrading system
@@ -57,7 +74,12 @@ else
     sudo apt-get upgrade -y
 fi
 
-# Install Docker if not present
+# Step 2: Install system dependencies
+print_step "2/8 - Installing system dependencies..."
+sudo apt-get install -y git curl nodejs npm python3-pip python3-venv
+
+# Step 3: Install Docker
+print_step "3/8 - Installing Docker..."
 if ! command -v docker &> /dev/null; then
     print_status "Installing Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
@@ -78,12 +100,8 @@ else
     print_status "Docker Compose is already installed"
 fi
 
-# Install system dependencies for USB mounting
-print_status "Installing USB mounting dependencies..."
-sudo apt-get install -y exfat-fuse exfatprogs usbmount git
-
-# Install VLC for audio playback (if not already present)
-print_status "Checking VLC installation..."
+# Step 4: Install/check VLC
+print_step "4/8 - Checking VLC installation..."
 if command -v vlc &> /dev/null; then
     print_status "VLC is already installed"
     
@@ -101,78 +119,39 @@ else
     sudo apt-get install -y vlc vlc-plugin-base
 fi
 
-# Create USB mounting points
-print_status "Setting up USB mounting points..."
+# Step 5: Clone repository
+print_step "5/8 - Cloning repository..."
+INSTALL_DIR="$HOME/slab-local"
+
+if [ -d "$INSTALL_DIR" ]; then
+    print_warning "Directory $INSTALL_DIR already exists. Updating..."
+    cd "$INSTALL_DIR"
+    git pull origin main || print_warning "Failed to update repository"
+else
+    print_status "Cloning repository to $INSTALL_DIR..."
+    git clone https://github.com/Shaka-Agina/slab-local.git "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+fi
+
+# Step 6: Build frontend
+print_step "6/8 - Building frontend application..."
+cd frontend
+
+print_status "Installing frontend dependencies..."
+npm install
+
+print_status "Building frontend for production..."
+npm run build
+
+print_status "Frontend build completed successfully"
+cd ..
+
+# Step 7: Set up USB mount points (for desktop auto-mounting)
+print_step "7/8 - Setting up USB mount points..."
 sudo mkdir -p /media/pi/MUSIC
 sudo mkdir -p /media/pi/PLAY_CARD
-sudo chown pi:pi /media/pi/MUSIC
-sudo chown pi:pi /media/pi/PLAY_CARD
-
-# Set up USB automounting with systemd
-print_status "Configuring USB automounting..."
-
-# Create mount units for USB drives
-sudo tee /etc/systemd/system/media-pi-MUSIC.mount > /dev/null << EOL
-[Unit]
-Description=Mount USB drive labeled MUSIC
-After=local-fs.target
-
-[Mount]
-Where=/media/pi/MUSIC
-What=LABEL=MUSIC
-Type=exfat
-Options=defaults,nofail,uid=pi,gid=pi
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-sudo tee /etc/systemd/system/media-pi-PLAY_CARD.mount > /dev/null << EOL
-[Unit]
-Description=Mount USB drive labeled PLAY_CARD
-After=local-fs.target
-
-[Mount]
-Where=/media/pi/PLAY_CARD
-What=LABEL=PLAY_CARD
-Type=exfat
-Options=defaults,nofail,uid=pi,gid=pi
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-# Create automount units
-sudo tee /etc/systemd/system/media-pi-MUSIC.automount > /dev/null << EOL
-[Unit]
-Description=Automount for MUSIC USB drive
-
-[Automount]
-Where=/media/pi/MUSIC
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-sudo tee /etc/systemd/system/media-pi-PLAY_CARD.automount > /dev/null << EOL
-[Unit]
-Description=Automount for PLAY_CARD USB drive
-
-[Automount]
-Where=/media/pi/PLAY_CARD
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-# Enable and start automount services
-sudo systemctl daemon-reload
-sudo systemctl enable media-pi-MUSIC.automount
-sudo systemctl enable media-pi-PLAY_CARD.automount
-sudo systemctl start media-pi-MUSIC.automount
-sudo systemctl start media-pi-PLAY_CARD.automount
-
-print_status "USB automounting configured"
+sudo chown pi:pi /media/pi/MUSIC /media/pi/PLAY_CARD
+print_status "USB mount points created (will be used by desktop auto-mounting)"
 
 # Create necessary directories for Docker volumes
 print_status "Creating Docker volume directories..."
@@ -183,16 +162,18 @@ mkdir -p ./logs
 print_status "Setting up audio permissions..."
 sudo usermod -aG audio $USER
 
-# Build and start the Docker container
-print_status "Building and starting the music player container..."
+# Step 8: Build and deploy Docker container
+print_step "8/8 - Building and deploying application..."
 
 # Stop any existing container
 docker-compose down 2>/dev/null || true
 
 # Build the image
+print_status "Building Docker image..."
 docker-compose build
 
 # Start the container
+print_status "Starting container..."
 docker-compose up -d
 
 # Wait for container to be ready
@@ -203,49 +184,47 @@ sleep 10
 if docker-compose ps | grep -q "Up"; then
     print_status "Container started successfully!"
     
-    # Get the container IP (should be host network)
     echo ""
-    echo "=== Deployment Complete! ==="
-    echo "The USB Music Player is now running in Docker"
+    echo "==============================================="
+    echo "🎉 INSTALLATION COMPLETE! 🎉"
+    echo "==============================================="
     echo ""
-    echo "Access the web interface at:"
-    echo "  - http://localhost:5000"
-    echo "  - http://$(hostname -I | awk '{print $1}'):5000"
+    echo "📍 Installation Directory: $INSTALL_DIR"
     echo ""
-    echo "USB Drive Setup:"
-    echo "  - Label your music USB drive as 'MUSIC'"
-    echo "  - Label your control USB drive as 'PLAY_CARD'"
-    echo "  - Create a file named 'playMusic.txt' on the PLAY_CARD drive"
+    echo "🌐 Access the web interface at:"
+    echo "   • http://localhost:5000"
+    echo "   • http://$(hostname -I | awk '{print $1}'):5000"
     echo ""
-    echo "Container Management:"
-    echo "  - View logs: docker-compose logs -f"
-    echo "  - Stop: docker-compose down"
-    echo "  - Restart: docker-compose restart"
-    echo "  - Rebuild: docker-compose build --no-cache"
+    echo "💾 USB Drive Setup:"
+    echo "   • Label your music USB drive as 'MUSIC'"
+    echo "   • Label your control USB drive as 'PLAY_CARD'"
+    echo "   • Create a file named 'playMusic.txt' on the PLAY_CARD drive"
+    echo ""
+    echo "⚙️  Container Management:"
+    echo "   • View logs: cd $INSTALL_DIR && docker-compose logs -f"
+    echo "   • Stop: cd $INSTALL_DIR && docker-compose down"
+    echo "   • Restart: cd $INSTALL_DIR && docker-compose restart"
+    echo "   • Rebuild: cd $INSTALL_DIR && docker-compose build --no-cache"
     echo ""
 else
-    print_error "Container failed to start. Check logs with: docker-compose logs"
+    print_error "Container failed to start. Check logs with: cd $INSTALL_DIR && docker-compose logs"
     exit 1
 fi
 
-# Optional: Set up systemd service for auto-start
-read -p "Do you want to set up auto-start on boot? (y/n): " setup_autostart
+# Set up systemd service for auto-start
+print_status "Setting up auto-start service..."
 
-if [[ $setup_autostart == "y" || $setup_autostart == "Y" ]]; then
-    print_status "Setting up auto-start service..."
-    
-    CURRENT_DIR=$(pwd)
-    
-    sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
+sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
 [Unit]
 Description=USB Music Player Docker Container
 Requires=docker.service
-After=docker.service media-pi-MUSIC.automount media-pi-PLAY_CARD.automount
+After=docker.service network.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=$CURRENT_DIR
+User=$USER
+WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/bin/docker-compose up -d
 ExecStop=/usr/bin/docker-compose down
 TimeoutStartSec=0
@@ -254,17 +233,27 @@ TimeoutStartSec=0
 WantedBy=multi-user.target
 EOL
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable usb-music-player.service
-    
-    print_status "Auto-start service enabled"
-fi
+sudo systemctl daemon-reload
+sudo systemctl enable usb-music-player.service
 
-print_status "Deployment script completed successfully!"
+print_status "Auto-start service enabled"
+
+echo ""
+echo "🔄 The music player will start automatically on boot!"
+echo ""
+echo "💡 Tips:"
+echo "   • Reboot to test auto-start: sudo reboot"
+echo "   • Check service status: sudo systemctl status usb-music-player.service"
+echo "   • USB drives will be automatically mounted when inserted"
+echo ""
 
 # Note about Docker group
 if groups $USER | grep -q docker; then
     print_status "You're already in the docker group"
 else
     print_warning "You may need to log out and back in for Docker group permissions to take effect"
-fi 
+    echo "💭 If you encounter Docker permission issues, log out and back in, then run:"
+    echo "   cd $INSTALL_DIR && docker-compose restart"
+fi
+
+print_status "🚀 One-click installation completed successfully!" 

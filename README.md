@@ -4,24 +4,32 @@ A USB-triggered music player for Raspberry Pi that automatically plays music whe
 
 ## 🚀 One-Command Installation (Recommended)
 
-Get up and running in minutes with our automated installer:
+Get up and running in minutes with our automated installer that does everything for you:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Shaka-Agina/slab-local/main/deploy-docker.sh | bash
 ```
 
-This command will:
-- ✅ Install Docker and Docker Compose
-- ✅ Set up USB automounting for labeled drives
-- ✅ Configure system dependencies
-- ✅ Build and deploy the music player container
-- ✅ Set up audio permissions
-- ✅ Optionally configure auto-start on boot
+**This single command will:**
+- ✅ Update your system and fix package conflicts
+- ✅ Install Docker, Docker Compose, Node.js, and all dependencies
+- ✅ Clone the repository to `~/slab-local`
+- ✅ Build the React frontend application
+- ✅ Set up USB mount points for desktop auto-mounting
+- ✅ Build and deploy the Docker container
+- ✅ Configure auto-start service for boot
+- ✅ Set up audio permissions and VLC integration
 
 **Requirements:**
-- Raspberry Pi running Raspberry Pi OS
+- Raspberry Pi running Raspberry Pi OS **with Desktop Environment**
 - Internet connection for initial setup
 - USB drives labeled `MUSIC` and `PLAY_CARD`
+
+**After installation:**
+- 📍 Application installed to: `~/slab-local`
+- 🌐 Web interface: `http://localhost:5000`
+- 🔄 Auto-starts on boot
+- 💾 USB drives auto-mount when inserted
 
 ---
 
@@ -269,16 +277,18 @@ For headless Raspberry Pi setups without desktop environment, see `DOCKER_DEPLOY
    ```bash
    curl -fsSL https://raw.githubusercontent.com/Shaka-Agina/slab-local/main/deploy-docker.sh | bash
    ```
+   *This installs everything automatically - no need to clone repos or build manually!*
 
 2. **Prepare your USB drives:**
    - Label one USB drive as `MUSIC` and add your music files organized by album
    - Label another USB drive as `PLAY_CARD` and create a `playMusic.txt` file
 
 3. **Connect and play:**
-   - Insert both USB drives into your Raspberry Pi
-   - Connect to the "S L A B - XXXX" WiFi network (password: `slabmusic`)
-   - Open `http://slab.local:5000` in your browser
+   - Insert both USB drives into your Raspberry Pi (they'll auto-mount)
+   - Open `http://localhost:5000` in your browser
    - Enjoy your music!
+
+**That's it!** The system auto-starts on boot, so just plug in your USB drives and go.
 
 ---
 
