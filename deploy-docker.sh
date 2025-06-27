@@ -100,6 +100,11 @@ if ! command -v docker &> /dev/null; then
     print_status "Docker installed successfully"
 else
     print_status "Docker is already installed"
+    # Ensure user is in docker group
+    if ! groups $USER | grep -q docker; then
+        print_status "Adding user to Docker group..."
+        sudo usermod -aG docker $USER
+    fi
 fi
 
 # Install Docker Compose if not present
@@ -109,6 +114,23 @@ if ! command -v docker-compose &> /dev/null; then
     print_status "Docker Compose installed successfully"
 else
     print_status "Docker Compose is already installed"
+fi
+
+# Activate Docker group permissions immediately
+print_status "Activating Docker group permissions..."
+if ! docker ps >/dev/null 2>&1; then
+    print_status "Activating new group membership for Docker access..."
+    # Method 1: Try with newgrp (this works in some cases)
+    if ! newgrp docker -c 'docker ps' >/dev/null 2>&1; then
+        print_warning "Group activation didn't work immediately. Will use sudo for Docker commands."
+        USE_SUDO_DOCKER="yes"
+    else
+        print_status "Docker group activated successfully"
+        USE_SUDO_DOCKER="no"
+    fi
+else
+    print_status "Docker access already working"
+    USE_SUDO_DOCKER="no"
 fi
 
 # Step 4: Install/check VLC
@@ -176,23 +198,31 @@ sudo usermod -aG audio $USER
 # Step 8: Build and deploy Docker container
 print_step "8/8 - Building and deploying application..."
 
+# Define Docker command prefix based on permissions
+if [ "$USE_SUDO_DOCKER" = "yes" ]; then
+    DOCKER_CMD="sudo docker-compose"
+    print_status "Using sudo for Docker commands due to group permission issue"
+else
+    DOCKER_CMD="docker-compose"
+fi
+
 # Stop any existing container
-docker-compose down 2>/dev/null || true
+$DOCKER_CMD down 2>/dev/null || true
 
 # Build the image
 print_status "Building Docker image..."
-docker-compose build
+$DOCKER_CMD build
 
 # Start the container
 print_status "Starting container..."
-docker-compose up -d
+$DOCKER_CMD up -d
 
 # Wait for container to be ready
 print_status "Waiting for container to start..."
 sleep 10
 
 # Check container status
-if docker-compose ps | grep -q "Up"; then
+if $DOCKER_CMD ps | grep -q "Up"; then
     print_status "Container started successfully!"
     
     echo ""
@@ -212,20 +242,48 @@ if docker-compose ps | grep -q "Up"; then
     echo "   • Create a file named 'playMusic.txt' on the PLAY_CARD drive"
     echo ""
     echo "⚙️  Container Management:"
-    echo "   • View logs: cd $INSTALL_DIR && docker-compose logs -f"
-    echo "   • Stop: cd $INSTALL_DIR && docker-compose down"
-    echo "   • Restart: cd $INSTALL_DIR && docker-compose restart"
-    echo "   • Rebuild: cd $INSTALL_DIR && docker-compose build --no-cache"
+    if [ "$USE_SUDO_DOCKER" = "yes" ]; then
+        echo "   • View logs: cd $INSTALL_DIR && sudo docker-compose logs -f"
+        echo "   • Stop: cd $INSTALL_DIR && sudo docker-compose down"
+        echo "   • Restart: cd $INSTALL_DIR && sudo docker-compose restart"
+        echo "   • Rebuild: cd $INSTALL_DIR && sudo docker-compose build --no-cache"
+    else
+        echo "   • View logs: cd $INSTALL_DIR && docker-compose logs -f"
+        echo "   • Stop: cd $INSTALL_DIR && docker-compose down"
+        echo "   • Restart: cd $INSTALL_DIR && docker-compose restart"
+        echo "   • Rebuild: cd $INSTALL_DIR && docker-compose build --no-cache"
+    fi
     echo ""
 else
-    print_error "Container failed to start. Check logs with: cd $INSTALL_DIR && docker-compose logs"
+    print_error "Container failed to start. Check logs with: cd $INSTALL_DIR && $DOCKER_CMD logs"
     exit 1
 fi
 
 # Set up systemd service for auto-start
 print_status "Setting up auto-start service..."
 
-sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
+# Create the systemd service with conditional sudo
+if [ "$USE_SUDO_DOCKER" = "yes" ]; then
+    sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
+[Unit]
+Description=USB Music Player Docker Container
+Requires=docker.service
+After=docker.service network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+WorkingDirectory=$INSTALL_DIR
+ExecStart=/usr/bin/docker-compose up -d
+ExecStop=/usr/bin/docker-compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+EOL
+else
+    sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
 [Unit]
 Description=USB Music Player Docker Container
 Requires=docker.service
@@ -243,6 +301,7 @@ TimeoutStartSec=0
 [Install]
 WantedBy=multi-user.target
 EOL
+fi
 
 sudo systemctl daemon-reload
 sudo systemctl enable usb-music-player.service
@@ -259,12 +318,21 @@ echo "   • USB drives will be automatically mounted when inserted"
 echo ""
 
 # Note about Docker group
-if groups $USER | grep -q docker; then
-    print_status "You're already in the docker group"
+if [ "$USE_SUDO_DOCKER" = "yes" ]; then
+    print_warning "Docker commands require sudo due to group permission timing"
+    echo "💭 After a reboot, Docker should work without sudo. For now:"
+    echo "   • All Docker commands need 'sudo' prefix"
+    echo "   • The systemd service is configured to handle this automatically"
+    echo "   • To manually fix: log out and back in, then run:"
+    echo "     cd $INSTALL_DIR && docker-compose restart"
 else
-    print_warning "You may need to log out and back in for Docker group permissions to take effect"
-    echo "💭 If you encounter Docker permission issues, log out and back in, then run:"
-    echo "   cd $INSTALL_DIR && docker-compose restart"
+    if groups $USER | grep -q docker; then
+        print_status "Docker group permissions are working correctly"
+    else
+        print_warning "You may need to log out and back in for Docker group permissions to take effect"
+        echo "💭 If you encounter Docker permission issues later, log out and back in, then run:"
+        echo "   cd $INSTALL_DIR && docker-compose restart"
+    fi
 fi
 
 print_status "🚀 One-click installation completed successfully!" 
