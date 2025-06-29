@@ -177,53 +177,41 @@ sudo systemctl stop auto-hotspot.service
 
 ## Troubleshooting
 
-### USB Drives Not Detected
-1. Check if drives are properly mounted: `ls -la /media/pi/`
-2. Ensure drives are labeled correctly (`MUSIC` and `PLAY_CARD`)
-3. Try removing and reinserting the USB drives
-4. Check mount status: `mount | grep /media/pi`
-5. Check automount services: `sudo systemctl status media-pi-*.automount`
+### USB Permission Issues
 
-### Web Interface Not Accessible
-1. Check if hotspot is running: `sudo systemctl status auto-hotspot.service`
-2. Verify Docker service: `sudo systemctl status usb-music-player.service`
-3. Check if ports are accessible: `sudo netstat -tlnp | grep 5000`
-4. Check container status: `docker-compose ps`
+If you get "permission denied" errors when USB drives are mounted:
 
-### Audio Issues
-1. Check audio devices: `aplay -l`
-2. Verify VLC installation: `vlc --version`
-3. Check PulseAudio: `pulseaudio --check`
-4. Verify audio group membership: `groups $USER | grep audio`
-
-### VLC Package Issues
-If you encounter VLC dependency conflicts during installation:
-
-**During System Upgrade:**
-1. VLC packages may conflict during `apt-get upgrade`. The scripts now automatically handle this by temporarily holding VLC packages during upgrade.
-2. If you encounter this manually, run:
+1. **Quick Fix**: Run the USB permissions fix script:
    ```bash
-   sudo apt-mark hold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2
-   sudo apt-get upgrade -y
-   sudo apt-mark unhold vlc vlc-bin vlc-plugin-base vlc-plugin-qt vlc-plugin-skins2
+   cd ~/slab-local
+   chmod +x fix-usb-permissions.sh
+   ./fix-usb-permissions.sh
    ```
 
-**General VLC Fixes:**
-1. Fix broken packages: `sudo apt-get install -f`
-2. Update package lists: `sudo apt-get update`
-3. Reinstall VLC components: `sudo apt-get install --reinstall vlc-bin vlc-plugin-base`
-4. If completely broken, remove and reinstall: 
+2. **Manual Fix**: Remove old static directories and unplug/replug USB drives:
    ```bash
-   sudo apt-get remove --purge vlc*
-   sudo apt-get autoremove
-   sudo apt-get install -y vlc
+   sudo rm -rf /media/pi/MUSIC /media/pi/PLAY_CARD
+   # Unplug USB drives, wait 5 seconds, then plug them back in
    ```
 
-### Installation Issues
-1. Ensure you have internet connection
-2. Check if running as correct user (not root): `whoami`
-3. Verify system compatibility: `uname -a`
-4. Check available disk space: `df -h`
+3. **Check USB Status**:
+   ```bash
+   # Check if USB drives are mounted with correct permissions
+   ls -la /media/pi/
+   
+   # Monitor USB events in real-time
+   sudo udevadm monitor --property --subsystem-match=block
+   
+   # Check current mount points
+   mount | grep /media/pi
+   ```
+
+### Common Issues
+
+- **USB drives not detected**: Ensure they are labeled exactly as `MUSIC` and `PLAY_CARD` (case-sensitive)
+- **Container won't start**: Check Docker service status with `sudo systemctl status docker`
+- **No audio output**: Verify audio group permissions with `groups $USER`
+- **Web interface not accessible**: Check if port 5000 is blocked by firewall
 
 ## Manual Testing
 
