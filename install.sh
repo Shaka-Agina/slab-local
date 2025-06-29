@@ -464,13 +464,6 @@ monitor_usb_changes() {
     done
 }
 
-# Main execution
-log_message "USB Bind Mount Monitor starting..."
-
-# Ensure required directories exist
-mkdir -p /home/pi/usb
-chown pi:pi /home/pi/usb
-
 # Start monitoring
 monitor_usb_changes
 
@@ -551,68 +544,4 @@ if command -v rfkill &> /dev/null; then
     fi
 fi
 
-echo -e "\nReboot now to start all services: sudo reboot"
-
-EOL
-
-    sudo chmod +x /usr/local/bin/usb-bind-monitor.sh
-
-    # Create systemd service for the USB bind mount monitor
-    sudo tee /etc/systemd/system/usb-bind-mounts.service > /dev/null << 'EOL'
-[Unit]
-Description=USB Bind Mount Service
-After=multi-user.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/usb-bind-monitor.sh
-Restart=always
-RestartSec=5
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable usb-bind-mounts.service
-    sudo systemctl start usb-bind-mounts.service
-
-    echo "USB auto-mounting configured with desktop environment compatibility"
-    echo "• Desktop will auto-mount USB drives to clean paths (no numbered suffixes)"
-    echo "• Bind mount service automatically creates stable paths at /home/pi/usb/"
-    echo "• Application uses improved detection logic with bind mount priority"
-    echo "• Service automatically handles USB disconnect/reconnect scenarios"
-    echo "• Background service monitors for USB changes and maintains bind mounts"
-
-else
-    echo "No desktop environment detected - setting up custom udev rules for headless system..."
-    
-    # Create udev rules for headless systems ONLY
-    sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOL'
-# USB automount rules for music player (headless systems ONLY)
-# When USB drives with specific labels are plugged in, mount them with correct permissions
-
-# Rule for MUSIC USB drive
-SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/MUSIC", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/MUSIC"
-
-# Rule for PLAY_CARD USB drive  
-SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/PLAY_CARD", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/PLAY_CARD"
-
-# Cleanup on removal
-SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="remove", RUN+="/bin/umount /media/pi/MUSIC", RUN+="/bin/rmdir /media/pi/MUSIC"
-SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="remove", RUN+="/bin/umount /media/pi/PLAY_CARD", RUN+="/bin/rmdir /media/pi/PLAY_CARD"
-EOL
-
-    # Reload udev rules
-    sudo udevadm control --reload-rules
-    sudo udevadm trigger
-
-    echo "USB auto-mounting configured with custom udev rules for headless system"
-    echo "• USB drives will auto-mount to /media/pi/MUSIC and /media/pi/PLAY_CARD"
-    echo "• Drives will mount with pi:pi ownership automatically"
-fi
-
-# Set up Docker service for boot launch
-echo "Setting up Docker service for boot launch..."
-CURRENT_DIR=$(pwd) 
+echo -e "\nReboot now to start all services: sudo reboot" 
