@@ -26,9 +26,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
-RUN useradd -m -s /bin/bash appuser && \
-    usermod -aG audio,plugdev appuser
+# Create app user with same UID/GID as pi user (1000:1000)
+# This ensures proper permissions for USB mounts
+RUN groupadd -g 1000 pi && \
+    useradd -m -u 1000 -g 1000 -s /bin/bash pi && \
+    usermod -aG audio,plugdev pi
 
 # Set working directory
 WORKDIR /app
@@ -46,13 +48,13 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
 # Create necessary directories structure (USB mounts will be handled by host system)
 RUN mkdir -p /media/pi && \
-    chown -R appuser:appuser /media/pi /app
+    chown -R pi:pi /media/pi /app
 
 # Create config directory
-RUN mkdir -p /app/config && chown appuser:appuser /app/config
+RUN mkdir -p /app/config && chown pi:pi /app/config
 
-# Switch to app user
-USER appuser
+# Switch to pi user
+USER pi
 
 # Expose Flask port
 EXPOSE 5000
