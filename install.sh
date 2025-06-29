@@ -310,211 +310,169 @@ sudo systemctl enable auto-hotspot.service
 
 echo "Auto hotspot configured with name: $HOTSPOT_NAME and password: $HOTSPOT_PASSWORD"
 
-# Set up Docker service for boot launch
-echo -e "\n[5/5] Setting up Docker service for boot launch..."
-CURRENT_DIR=$(pwd)
+# Set up USB mounting
+echo -e "\n[5/5] Setting up USB auto-mounting..."
 
-# Set up USB auto-mounting for dynamic drives
-echo "Setting up USB auto-mounting..."
-sudo apt-get install -y udisks2 exfat-fuse exfatprogs acl
-sudo mkdir -p /media/pi
-sudo chown pi:pi /media/pi
+# Create USB mount directories
+sudo mkdir -p /home/pi/usb/music /home/pi/usb/playcard
+sudo chown -R pi:pi /home/pi/usb
 
-# ALWAYS remove any existing conflicting udev rules first
-echo "Removing any existing conflicting udev rules..."
-sudo rm -f /etc/udev/rules.d/99-usb-automount.rules
-sudo rm -f /etc/udev/rules.d/99-usb-music.rules
-sudo udevadm control --reload-rules 2>/dev/null || true
+# Install inotify-tools for USB monitoring
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y inotify-tools
 
-# Improved desktop environment detection
-HAS_DESKTOP=false
-
-# Check for DISPLAY variable (X11 session)
-if [ -n "$DISPLAY" ]; then
-    echo "Desktop environment detected via DISPLAY variable"
-    HAS_DESKTOP=true
-fi
-
-# Check for graphical target
-if systemctl is-active --quiet graphical.target 2>/dev/null; then
-    echo "Desktop environment detected via graphical.target"
-    HAS_DESKTOP=true
-fi
-
-# Check for desktop environment packages
-if dpkg -l | grep -q "raspberrypi-ui-mods\|lxde\|xfce4\|gnome\|kde"; then
-    echo "Desktop environment detected via installed packages"
-    HAS_DESKTOP=true
-fi
-
-# Check for desktop session managers
-if pgrep -x "lxsession\|xfce4-session\|gnome-session\|ksmserver" > /dev/null 2>&1; then
-    echo "Desktop environment detected via running session manager"
-    HAS_DESKTOP=true
-fi
-
-# For Raspberry Pi OS Desktop, also check for pcmanfm (file manager)
-if command -v pcmanfm >/dev/null 2>&1; then
-    echo "Desktop environment detected via pcmanfm file manager"
-    HAS_DESKTOP=true
-fi
-
-# Use desktop environment auto-mounting (default approach)
-if [ "$HAS_DESKTOP" = true ]; then
-    echo "Using desktop environment auto-mounting with permission monitoring..."
-
-    # Create USB bind mount monitoring service
-    sudo tee /usr/local/bin/usb-bind-mount-monitor.sh > /dev/null << 'EOL'
+# Check if we're in a desktop environment (auto-mounting available)
+if [ -n "$DISPLAY" ] || systemctl list-units --type=service | grep -q udisks2; then
+    echo "Desktop environment detected - setting up bind mount system..."
+    
+    # Create the USB bind mount monitoring script
+    sudo tee /usr/local/bin/usb-bind-monitor.sh > /dev/null << 'EOL'
 #!/bin/bash
-# Monitor and create bind mounts for USB drives with proper permissions
 
-# Create the bind mount directory structure
+# USB Bind Mount Monitor Script
+# This script monitors for USB mount/unmount events and creates bind mounts
+
+LOG_FILE="/var/log/usb-bind-mounts.log"
+
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+create_bind_mount() {
+    local source="$1"
+    local target="$2"
+    local label="$3"
+    
+    if [ -d "$source" ] && [ -d "$target" ]; then
+        # Check if already bind mounted
+        if mountpoint -q "$target"; then
+            log_message "Bind mount already exists: $target"
+            return 0
+        fi
+        
+        # Create bind mount
+        if mount --bind "$source" "$target"; then
+            log_message "Created bind mount: $source -> $target ($label)"
+            
+            # Set proper permissions
+            chown pi:pi "$target" 2>/dev/null || true
+            chmod 755 "$target" 2>/dev/null || true
+            
+            return 0
+        else
+            log_message "Failed to create bind mount: $source -> $target"
+            return 1
+        fi
+    else
+        log_message "Cannot create bind mount - source or target missing: $source -> $target"
+        return 1
+    fi
+}
+
+remove_bind_mount() {
+    local target="$1"
+    local label="$2"
+    
+    if mountpoint -q "$target"; then
+        if umount "$target"; then
+            log_message "Removed bind mount: $target ($label)"
+            return 0
+        else
+            log_message "Failed to remove bind mount: $target"
+            return 1
+        fi
+    else
+        log_message "Bind mount not active: $target"
+        return 0
+    fi
+}
+
+setup_bind_mounts() {
+    log_message "Setting up USB bind mounts..."
+    
+    # Create target directories if they don't exist
+    mkdir -p /home/pi/usb/music
+    mkdir -p /home/pi/usb/playcard
+    chown pi:pi /home/pi/usb /home/pi/usb/music /home/pi/usb/playcard
+    
+    # Check for MUSIC USB drives
+    for music_path in /media/pi/MUSIC*; do
+        if [ -d "$music_path" ] && mountpoint -q "$music_path"; then
+            create_bind_mount "$music_path" "/home/pi/usb/music" "MUSIC"
+            break  # Only bind mount the first one found
+        fi
+    done
+    
+    # Check for PLAY_CARD USB drives  
+    for playcard_path in /media/pi/PLAY_CARD*; do
+        if [ -d "$playcard_path" ] && mountpoint -q "$playcard_path"; then
+            create_bind_mount "$playcard_path" "/home/pi/usb/playcard" "PLAY_CARD"
+            break  # Only bind mount the first one found
+        fi
+    done
+}
+
+cleanup_stale_bind_mounts() {
+    log_message "Cleaning up stale bind mounts..."
+    
+    # Check music bind mount
+    if mountpoint -q "/home/pi/usb/music"; then
+        # Find the source mount point
+        source_mount=$(findmnt -n -o SOURCE /home/pi/usb/music)
+        if [ -n "$source_mount" ]; then
+            # Check if the source is still mounted
+            if ! mountpoint -q "$source_mount"; then
+                log_message "Source mount $source_mount no longer active, removing bind mount"
+                remove_bind_mount "/home/pi/usb/music" "MUSIC"
+            fi
+        fi
+    fi
+    
+    # Check playcard bind mount
+    if mountpoint -q "/home/pi/usb/playcard"; then
+        # Find the source mount point  
+        source_mount=$(findmnt -n -o SOURCE /home/pi/usb/playcard)
+        if [ -n "$source_mount" ]; then
+            # Check if the source is still mounted
+            if ! mountpoint -q "$source_mount"; then
+                log_message "Source mount $source_mount no longer active, removing bind mount"
+                remove_bind_mount "/home/pi/usb/playcard" "PLAY_CARD"
+            fi
+        fi
+    fi
+}
+
+monitor_usb_changes() {
+    log_message "Starting USB bind mount monitor..."
+    
+    # Initial setup
+    setup_bind_mounts
+    
+    # Monitor for changes using inotify on /media/pi
+    inotifywait -m -e create,delete,moved_to,moved_from /media/pi 2>/dev/null | while read path action file; do
+        log_message "USB event detected: $action $file in $path"
+        
+        # Wait a moment for the system to settle
+        sleep 2
+        
+        # Clean up any stale bind mounts first
+        cleanup_stale_bind_mounts
+        
+        # Re-setup bind mounts
+        setup_bind_mounts
+        
+        log_message "USB bind mount update completed"
+    done
+}
+
+# Main execution
+log_message "USB Bind Mount Monitor starting..."
+
+# Ensure required directories exist
 mkdir -p /home/pi/usb
-chown -R pi:pi /home/pi/usb
-chmod -R 755 /home/pi/usb
+chown pi:pi /home/pi/usb
 
-while true; do
-    # Handle MUSIC USB drives
-    for music_mount in /media/pi/MUSIC*; do
-        if mountpoint -q "$music_mount" 2>/dev/null; then
-            bind_target="/home/pi/usb/music"
-            
-            # Create bind mount if it doesn't exist
-            if ! mountpoint -q "$bind_target" 2>/dev/null; then
-                mkdir -p "$bind_target"
-                chown pi:pi "$bind_target"
-                
-                # Create the bind mount
-                if mount --bind "$music_mount" "$bind_target" 2>/dev/null; then
-                    # Set proper permissions on the bind mount
-                    chown -R pi:pi "$bind_target" 2>/dev/null || true
-                    chmod -R 755 "$bind_target" 2>/dev/null || true
-                    echo "$(date): Created bind mount: $music_mount -> $bind_target"
-                else
-                    echo "$(date): Failed to create bind mount: $music_mount -> $bind_target"
-                fi
-            fi
-            break  # Only bind mount the first MUSIC drive found
-        fi
-    done
-    
-    # Handle PLAY_CARD USB drives
-    for playcard_mount in /media/pi/PLAY_CARD*; do
-        if mountpoint -q "$playcard_mount" 2>/dev/null; then
-            bind_target="/home/pi/usb/playcard"
-            
-            # Create bind mount if it doesn't exist
-            if ! mountpoint -q "$bind_target" 2>/dev/null; then
-                mkdir -p "$bind_target"
-                chown pi:pi "$bind_target"
-                
-                # Create the bind mount
-                if mount --bind "$playcard_mount" "$bind_target" 2>/dev/null; then
-                    # Set proper permissions on the bind mount
-                    chown -R pi:pi "$bind_target" 2>/dev/null || true
-                    chmod -R 755 "$bind_target" 2>/dev/null || true
-                    echo "$(date): Created bind mount: $playcard_mount -> $bind_target"
-                else
-                    echo "$(date): Failed to create bind mount: $playcard_mount -> $bind_target"
-                fi
-            fi
-            break  # Only bind mount the first PLAY_CARD drive found
-        fi
-    done
-    
-    # Clean up bind mounts if USB drives are removed
-    if mountpoint -q "/home/pi/usb/music" 2>/dev/null; then
-        # Check if the original mount still exists
-        music_exists=false
-        for music_mount in /media/pi/MUSIC*; do
-            if mountpoint -q "$music_mount" 2>/dev/null; then
-                music_exists=true
-                break
-            fi
-        done
-        
-        if [ "$music_exists" = false ]; then
-            umount "/home/pi/usb/music" 2>/dev/null || true
-            echo "$(date): Removed bind mount: /home/pi/usb/music (original USB removed)"
-        fi
-    fi
-    
-    if mountpoint -q "/home/pi/usb/playcard" 2>/dev/null; then
-        # Check if the original mount still exists
-        playcard_exists=false
-        for playcard_mount in /media/pi/PLAY_CARD*; do
-            if mountpoint -q "$playcard_mount" 2>/dev/null; then
-                playcard_exists=true
-                break
-            fi
-        done
-        
-        if [ "$playcard_exists" = false ]; then
-            umount "/home/pi/usb/playcard" 2>/dev/null || true
-            echo "$(date): Removed bind mount: /home/pi/usb/playcard (original USB removed)"
-        fi
-    fi
-    
-    sleep 3
-done
-EOL
-
-    sudo chmod +x /usr/local/bin/usb-bind-mount-monitor.sh
-
-    # Create systemd service for the monitor
-    sudo tee /etc/systemd/system/usb-bind-mount-monitor.service > /dev/null << 'EOL'
-[Unit]
-Description=USB Bind Mount Monitor for Music Player
-After=graphical.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/usb-bind-mount-monitor.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable usb-bind-mount-monitor.service
-    sudo systemctl start usb-bind-mount-monitor.service
-
-    echo "USB auto-mounting configured with desktop environment compatibility"
-    echo "• Desktop will auto-mount USB drives to clean paths (no numbered suffixes)"
-    echo "• Application dynamically detects drives regardless of mount path"
-    echo "• Background service automatically fixes permissions to pi:pi ownership"
-    echo "• NO conflicting directories or udev rules created"
-
-else
-    echo "No desktop environment detected - setting up custom udev rules for headless system..."
-    
-    # Create udev rules for headless systems ONLY
-    sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOL'
-# USB automount rules for music player (headless systems ONLY)
-# When USB drives with specific labels are plugged in, mount them with correct permissions
-
-# Rule for MUSIC USB drive
-SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/MUSIC", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/MUSIC"
-
-# Rule for PLAY_CARD USB drive  
-SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/PLAY_CARD", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/PLAY_CARD"
-
-# Cleanup on removal
-SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="remove", RUN+="/bin/umount /media/pi/MUSIC", RUN+="/bin/rmdir /media/pi/MUSIC"
-SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="remove", RUN+="/bin/umount /media/pi/PLAY_CARD", RUN+="/bin/rmdir /media/pi/PLAY_CARD"
-EOL
-
-    # Reload udev rules
-    sudo udevadm control --reload-rules
-    sudo udevadm trigger
-
-    echo "USB auto-mounting configured with custom udev rules for headless system"
-    echo "• USB drives will auto-mount to /media/pi/MUSIC and /media/pi/PLAY_CARD"
-    echo "• Drives will mount with pi:pi ownership automatically"
-fi
+# Start monitoring
+monitor_usb_changes
 
 # Create Docker startup script
 sudo bash -c "cat > /usr/local/bin/start_music_player.sh << EOL
@@ -593,4 +551,68 @@ if command -v rfkill &> /dev/null; then
     fi
 fi
 
-echo -e "\nReboot now to start all services: sudo reboot" 
+echo -e "\nReboot now to start all services: sudo reboot"
+
+EOL
+
+    sudo chmod +x /usr/local/bin/usb-bind-monitor.sh
+
+    # Create systemd service for the USB bind mount monitor
+    sudo tee /etc/systemd/system/usb-bind-mounts.service > /dev/null << 'EOL'
+[Unit]
+Description=USB Bind Mount Service
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/usb-bind-monitor.sh
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable usb-bind-mounts.service
+    sudo systemctl start usb-bind-mounts.service
+
+    echo "USB auto-mounting configured with desktop environment compatibility"
+    echo "• Desktop will auto-mount USB drives to clean paths (no numbered suffixes)"
+    echo "• Bind mount service automatically creates stable paths at /home/pi/usb/"
+    echo "• Application uses improved detection logic with bind mount priority"
+    echo "• Service automatically handles USB disconnect/reconnect scenarios"
+    echo "• Background service monitors for USB changes and maintains bind mounts"
+
+else
+    echo "No desktop environment detected - setting up custom udev rules for headless system..."
+    
+    # Create udev rules for headless systems ONLY
+    sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOL'
+# USB automount rules for music player (headless systems ONLY)
+# When USB drives with specific labels are plugged in, mount them with correct permissions
+
+# Rule for MUSIC USB drive
+SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/MUSIC", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/MUSIC"
+
+# Rule for PLAY_CARD USB drive  
+SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/PLAY_CARD", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/PLAY_CARD"
+
+# Cleanup on removal
+SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="remove", RUN+="/bin/umount /media/pi/MUSIC", RUN+="/bin/rmdir /media/pi/MUSIC"
+SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="remove", RUN+="/bin/umount /media/pi/PLAY_CARD", RUN+="/bin/rmdir /media/pi/PLAY_CARD"
+EOL
+
+    # Reload udev rules
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+
+    echo "USB auto-mounting configured with custom udev rules for headless system"
+    echo "• USB drives will auto-mount to /media/pi/MUSIC and /media/pi/PLAY_CARD"
+    echo "• Drives will mount with pi:pi ownership automatically"
+fi
+
+# Set up Docker service for boot launch
+echo "Setting up Docker service for boot launch..."
+CURRENT_DIR=$(pwd) 
