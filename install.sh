@@ -320,70 +320,63 @@ sudo apt-get install -y udisks2 exfat-fuse exfatprogs
 sudo mkdir -p /media/pi
 sudo chown pi:pi /media/pi
 
-# Create udev rules for proper USB mounting permissions
-echo "Setting up USB mounting permissions..."
-sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOL'
-# USB automount rules for music player
-# When USB drives with specific labels are plugged in, mount them with correct permissions
+# For desktop environments, use built-in auto-mounting with permission monitoring
+echo "Desktop environment detected - using built-in auto-mounting with permission monitoring..."
 
-# Rule for MUSIC USB drive
-SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/MUSIC", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/MUSIC"
-
-# Rule for PLAY_CARD USB drive  
-SUBSYSTEM=="block", ATTRS{idVendor}=="*", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="add", RUN+="/bin/mkdir -p /media/pi/PLAY_CARD", RUN+="/bin/mount -o uid=1000,gid=1000,umask=0022 /dev/%k /media/pi/PLAY_CARD"
-
-# Cleanup on removal
-SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="MUSIC", ACTION=="remove", RUN+="/bin/umount /media/pi/MUSIC", RUN+="/bin/rmdir /media/pi/MUSIC"
-SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="PLAY_CARD", ACTION=="remove", RUN+="/bin/umount /media/pi/PLAY_CARD", RUN+="/bin/rmdir /media/pi/PLAY_CARD"
-EOL
-
-# Reload udev rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-
-# Create USB mount helper service for better reliability
-echo "Creating USB mount helper service..."
-sudo tee /usr/local/bin/usb-mount-helper.sh > /dev/null << 'EOL'
+# Create USB permission monitoring service
+sudo tee /usr/local/bin/fix-usb-permissions-monitor.sh > /dev/null << 'EOL'
 #!/bin/bash
-# USB mount helper for music player
+# Monitor and fix USB permissions for music player
 
-DEVICE=$1
-LABEL=$2
-ACTION=$3
-
-case "$ACTION" in
-    "add")
-        case "$LABEL" in
-            "MUSIC")
-                mkdir -p /media/pi/MUSIC
-                mount -o uid=1000,gid=1000,umask=0022 "$DEVICE" /media/pi/MUSIC
-                chown pi:pi /media/pi/MUSIC
-                ;;
-            "PLAY_CARD")
-                mkdir -p /media/pi/PLAY_CARD
-                mount -o uid=1000,gid=1000,umask=0022 "$DEVICE" /media/pi/PLAY_CARD
-                chown pi:pi /media/pi/PLAY_CARD
-                ;;
-        esac
-        ;;
-    "remove")
-        case "$LABEL" in
-            "MUSIC")
-                umount /media/pi/MUSIC 2>/dev/null || true
-                rmdir /media/pi/MUSIC 2>/dev/null || true
-                ;;
-            "PLAY_CARD")
-                umount /media/pi/PLAY_CARD 2>/dev/null || true
-                rmdir /media/pi/PLAY_CARD 2>/dev/null || true
-                ;;
-        esac
-        ;;
-esac
+while true; do
+    # Check if MUSIC USB is mounted and fix permissions
+    if mountpoint -q /media/pi/MUSIC 2>/dev/null; then
+        current_owner=$(stat -c '%U' /media/pi/MUSIC 2>/dev/null || echo "unknown")
+        if [ "$current_owner" != "pi" ]; then
+            chown -R pi:pi /media/pi/MUSIC 2>/dev/null || true
+            echo "$(date): Fixed MUSIC USB permissions (was: $current_owner, now: pi)"
+        fi
+    fi
+    
+    # Check if PLAY_CARD USB is mounted and fix permissions
+    if mountpoint -q /media/pi/PLAY_CARD 2>/dev/null; then
+        current_owner=$(stat -c '%U' /media/pi/PLAY_CARD 2>/dev/null || echo "unknown")
+        if [ "$current_owner" != "pi" ]; then
+            chown -R pi:pi /media/pi/PLAY_CARD 2>/dev/null || true
+            echo "$(date): Fixed PLAY_CARD USB permissions (was: $current_owner, now: pi)"
+        fi
+    fi
+    
+    sleep 2
+done
 EOL
 
-sudo chmod +x /usr/local/bin/usb-mount-helper.sh
+sudo chmod +x /usr/local/bin/fix-usb-permissions-monitor.sh
 
-echo "USB auto-mounting configured with proper permissions - drives labeled 'MUSIC' and 'PLAY_CARD' will auto-mount when plugged in"
+# Create systemd service for the monitor
+sudo tee /etc/systemd/system/usb-permissions-monitor.service > /dev/null << 'EOL'
+[Unit]
+Description=USB Permissions Monitor for Music Player
+After=graphical.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/fix-usb-permissions-monitor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+sudo systemctl daemon-reload
+sudo systemctl enable usb-permissions-monitor.service
+sudo systemctl start usb-permissions-monitor.service
+
+echo "USB auto-mounting configured with desktop environment compatibility"
+echo "• Desktop will auto-mount USB drives to /media/pi/MUSIC and /media/pi/PLAY_CARD"
+echo "• Background service will automatically fix permissions to pi:pi ownership"
 
 # Create Docker startup script
 sudo bash -c "cat > /usr/local/bin/start_music_player.sh << EOL
