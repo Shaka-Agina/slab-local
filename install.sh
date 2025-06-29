@@ -316,7 +316,7 @@ CURRENT_DIR=$(pwd)
 
 # Set up USB auto-mounting for dynamic drives
 echo "Setting up USB auto-mounting..."
-sudo apt-get install -y udisks2 exfat-fuse exfatprogs
+sudo apt-get install -y udisks2 exfat-fuse exfatprogs acl
 sudo mkdir -p /media/pi
 sudo chown pi:pi /media/pi
 
@@ -373,10 +373,17 @@ while true; do
     for music_mount in /media/pi/MUSIC*; do
         if mountpoint -q "$music_mount" 2>/dev/null; then
             current_owner=$(stat -c '%U' "$music_mount" 2>/dev/null || echo "unknown")
-            if [ "$current_owner" != "pi" ]; then
+            current_group=$(stat -c '%G' "$music_mount" 2>/dev/null || echo "unknown")
+            
+            # Fix ownership to pi:pi and ensure docker group can access
+            if [ "$current_owner" != "pi" ] || [ "$current_group" != "pi" ]; then
                 chown -R pi:pi "$music_mount" 2>/dev/null || true
-                echo "$(date): Fixed $music_mount permissions (was: $current_owner, now: pi)"
+                chmod -R 755 "$music_mount" 2>/dev/null || true
+                echo "$(date): Fixed $music_mount permissions (was: $current_owner:$current_group, now: pi:pi)"
             fi
+            
+            # Ensure docker can read the mount point
+            setfacl -R -m g:docker:rx "$music_mount" 2>/dev/null || true
         fi
     done
     
@@ -384,10 +391,17 @@ while true; do
     for playcard_mount in /media/pi/PLAY_CARD*; do
         if mountpoint -q "$playcard_mount" 2>/dev/null; then
             current_owner=$(stat -c '%U' "$playcard_mount" 2>/dev/null || echo "unknown")
-            if [ "$current_owner" != "pi" ]; then
+            current_group=$(stat -c '%G' "$playcard_mount" 2>/dev/null || echo "unknown")
+            
+            # Fix ownership to pi:pi and ensure docker group can access
+            if [ "$current_owner" != "pi" ] || [ "$current_group" != "pi" ]; then
                 chown -R pi:pi "$playcard_mount" 2>/dev/null || true
-                echo "$(date): Fixed $playcard_mount permissions (was: $current_owner, now: pi)"
+                chmod -R 755 "$playcard_mount" 2>/dev/null || true
+                echo "$(date): Fixed $playcard_mount permissions (was: $current_owner:$current_group, now: pi:pi)"
             fi
+            
+            # Ensure docker can read the mount point
+            setfacl -R -m g:docker:rx "$playcard_mount" 2>/dev/null || true
         fi
     done
     

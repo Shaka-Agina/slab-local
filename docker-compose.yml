@@ -6,6 +6,9 @@ services:
     container_name: usb-music-player
     restart: unless-stopped
     
+    # Run as pi user for proper USB permissions
+    user: "1000:1000"
+    
     # Network configuration
     network_mode: host
     
@@ -20,7 +23,7 @@ services:
     
     # Volume mounts
     volumes:
-      # USB mount points (specific paths)
+      # USB mount points (entire /media/pi for dynamic detection)
       - /media/pi:/media/pi:rw
       - /mnt:/mnt:rw
       
