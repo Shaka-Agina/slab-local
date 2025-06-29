@@ -11,8 +11,8 @@ services:
     
     # Environment variables
     environment:
-      - MUSIC_USB_MOUNT=/media/pi/MUSIC
-      - CONTROL_USB_MOUNT=/media/pi/PLAY_CARD
+      - MUSIC_USB_MOUNT=/home/pi/usb/music
+      - CONTROL_USB_MOUNT=/home/pi/usb/playcard
       - CONTROL_FILE_NAME=playMusic.txt
       - WEB_PORT=5000
       - DEFAULT_VOLUME=70
@@ -20,8 +20,11 @@ services:
     
     # Volume mounts
     volumes:
-      # USB mount points (entire /media/pi for dynamic detection)
-      - /media/pi:/media/pi:rw
+      # USB bind mounts (stable paths with proper permissions)
+      - /home/pi/usb:/home/pi/usb:rw
+      
+      # Legacy support for any direct /media/pi access
+      - /media/pi:/media/pi:ro
       - /mnt:/mnt:rw
       
       # Audio system access

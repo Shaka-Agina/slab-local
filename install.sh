@@ -363,64 +363,114 @@ fi
 if [ "$HAS_DESKTOP" = true ]; then
     echo "Using desktop environment auto-mounting with permission monitoring..."
 
-    # Create USB permission monitoring service
-    sudo tee /usr/local/bin/fix-usb-permissions-monitor.sh > /dev/null << 'EOL'
+    # Create USB bind mount monitoring service
+    sudo tee /usr/local/bin/usb-bind-mount-monitor.sh > /dev/null << 'EOL'
 #!/bin/bash
-# Monitor and fix USB permissions for music player
+# Monitor and create bind mounts for USB drives with proper permissions
+
+# Create the bind mount directory structure
+mkdir -p /home/pi/usb
+chown -R pi:pi /home/pi/usb
+chmod -R 755 /home/pi/usb
 
 while true; do
-    # Check for MUSIC USB (including numbered variants like MUSIC1, MUSIC2, etc.)
+    # Handle MUSIC USB drives
     for music_mount in /media/pi/MUSIC*; do
         if mountpoint -q "$music_mount" 2>/dev/null; then
-            current_owner=$(stat -c '%U' "$music_mount" 2>/dev/null || echo "unknown")
-            current_group=$(stat -c '%G' "$music_mount" 2>/dev/null || echo "unknown")
+            bind_target="/home/pi/usb/music"
             
-            # Fix ownership to pi:pi and ensure docker group can access
-            if [ "$current_owner" != "pi" ] || [ "$current_group" != "pi" ]; then
-                chown -R pi:pi "$music_mount" 2>/dev/null || true
-                chmod -R 755 "$music_mount" 2>/dev/null || true
-                echo "$(date): Fixed $music_mount permissions (was: $current_owner:$current_group, now: pi:pi)"
+            # Create bind mount if it doesn't exist
+            if ! mountpoint -q "$bind_target" 2>/dev/null; then
+                mkdir -p "$bind_target"
+                chown pi:pi "$bind_target"
+                
+                # Create the bind mount
+                if mount --bind "$music_mount" "$bind_target" 2>/dev/null; then
+                    # Set proper permissions on the bind mount
+                    chown -R pi:pi "$bind_target" 2>/dev/null || true
+                    chmod -R 755 "$bind_target" 2>/dev/null || true
+                    echo "$(date): Created bind mount: $music_mount -> $bind_target"
+                else
+                    echo "$(date): Failed to create bind mount: $music_mount -> $bind_target"
+                fi
             fi
-            
-            # Ensure docker can read the mount point
-            setfacl -R -m g:docker:rx "$music_mount" 2>/dev/null || true
+            break  # Only bind mount the first MUSIC drive found
         fi
     done
     
-    # Check for PLAY_CARD USB (including numbered variants like PLAY_CARD1, PLAY_CARD2, etc.)
+    # Handle PLAY_CARD USB drives
     for playcard_mount in /media/pi/PLAY_CARD*; do
         if mountpoint -q "$playcard_mount" 2>/dev/null; then
-            current_owner=$(stat -c '%U' "$playcard_mount" 2>/dev/null || echo "unknown")
-            current_group=$(stat -c '%G' "$playcard_mount" 2>/dev/null || echo "unknown")
+            bind_target="/home/pi/usb/playcard"
             
-            # Fix ownership to pi:pi and ensure docker group can access
-            if [ "$current_owner" != "pi" ] || [ "$current_group" != "pi" ]; then
-                chown -R pi:pi "$playcard_mount" 2>/dev/null || true
-                chmod -R 755 "$playcard_mount" 2>/dev/null || true
-                echo "$(date): Fixed $playcard_mount permissions (was: $current_owner:$current_group, now: pi:pi)"
+            # Create bind mount if it doesn't exist
+            if ! mountpoint -q "$bind_target" 2>/dev/null; then
+                mkdir -p "$bind_target"
+                chown pi:pi "$bind_target"
+                
+                # Create the bind mount
+                if mount --bind "$playcard_mount" "$bind_target" 2>/dev/null; then
+                    # Set proper permissions on the bind mount
+                    chown -R pi:pi "$bind_target" 2>/dev/null || true
+                    chmod -R 755 "$bind_target" 2>/dev/null || true
+                    echo "$(date): Created bind mount: $playcard_mount -> $bind_target"
+                else
+                    echo "$(date): Failed to create bind mount: $playcard_mount -> $bind_target"
+                fi
             fi
-            
-            # Ensure docker can read the mount point
-            setfacl -R -m g:docker:rx "$playcard_mount" 2>/dev/null || true
+            break  # Only bind mount the first PLAY_CARD drive found
         fi
     done
     
-    sleep 2
+    # Clean up bind mounts if USB drives are removed
+    if mountpoint -q "/home/pi/usb/music" 2>/dev/null; then
+        # Check if the original mount still exists
+        music_exists=false
+        for music_mount in /media/pi/MUSIC*; do
+            if mountpoint -q "$music_mount" 2>/dev/null; then
+                music_exists=true
+                break
+            fi
+        done
+        
+        if [ "$music_exists" = false ]; then
+            umount "/home/pi/usb/music" 2>/dev/null || true
+            echo "$(date): Removed bind mount: /home/pi/usb/music (original USB removed)"
+        fi
+    fi
+    
+    if mountpoint -q "/home/pi/usb/playcard" 2>/dev/null; then
+        # Check if the original mount still exists
+        playcard_exists=false
+        for playcard_mount in /media/pi/PLAY_CARD*; do
+            if mountpoint -q "$playcard_mount" 2>/dev/null; then
+                playcard_exists=true
+                break
+            fi
+        done
+        
+        if [ "$playcard_exists" = false ]; then
+            umount "/home/pi/usb/playcard" 2>/dev/null || true
+            echo "$(date): Removed bind mount: /home/pi/usb/playcard (original USB removed)"
+        fi
+    fi
+    
+    sleep 3
 done
 EOL
 
-    sudo chmod +x /usr/local/bin/fix-usb-permissions-monitor.sh
+    sudo chmod +x /usr/local/bin/usb-bind-mount-monitor.sh
 
     # Create systemd service for the monitor
-    sudo tee /etc/systemd/system/usb-permissions-monitor.service > /dev/null << 'EOL'
+    sudo tee /etc/systemd/system/usb-bind-mount-monitor.service > /dev/null << 'EOL'
 [Unit]
-Description=USB Permissions Monitor for Music Player
+Description=USB Bind Mount Monitor for Music Player
 After=graphical.target
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/fix-usb-permissions-monitor.sh
+ExecStart=/usr/local/bin/usb-bind-mount-monitor.sh
 Restart=always
 RestartSec=5
 
@@ -429,8 +479,8 @@ WantedBy=multi-user.target
 EOL
 
     sudo systemctl daemon-reload
-    sudo systemctl enable usb-permissions-monitor.service
-    sudo systemctl start usb-permissions-monitor.service
+    sudo systemctl enable usb-bind-mount-monitor.service
+    sudo systemctl start usb-bind-mount-monitor.service
 
     echo "USB auto-mounting configured with desktop environment compatibility"
     echo "• Desktop will auto-mount USB drives to clean paths (no numbered suffixes)"

@@ -283,3 +283,174 @@ For headless Raspberry Pi setups without desktop environment, see `DOCKER_DEPLOY
 ---
 
 **Note**: This system supports both desktop and headless Raspberry Pi OS installations. USB drives labeled `MUSIC` and `PLAY_CARD` will be automatically mounted and configured for seamless music playbook.
+
+# USB Music Player for Raspberry Pi
+
+A Docker-based USB music player that automatically detects and plays music from USB drives, with web-based control interface.
+
+## 🚀 Quick Start
+
+### One-Click Installation
+```bash
+curl -sSL https://raw.githubusercontent.com/your-repo/slab-local/main/install.sh | bash
+```
+
+### Manual Installation
+```bash
+git clone https://github.com/your-repo/slab-local.git
+cd slab-local
+chmod +x install.sh
+./install.sh
+```
+
+## 🔧 USB Drive Setup
+
+### Required USB Drive Labels:
+- **MUSIC**: Contains your music library
+- **PLAY_CARD**: Contains control files (e.g., `playMusic.txt`)
+
+### Bind Mount Architecture
+
+This system uses **bind mounts** to solve USB permission issues with Docker:
+
+```
+Desktop mounts:     /media/pi/MUSIC      (root:root, restricted permissions)
+                   /media/pi/PLAY_CARD   (root:root, restricted permissions)
+                          ↓
+Bind mounts:       /home/pi/usb/music    (pi:pi, Docker-accessible)
+                   /home/pi/usb/playcard (pi:pi, Docker-accessible)
+                          ↓
+Docker container:  Uses /home/pi/usb/* paths with proper permissions
+```
+
+**Why bind mounts?**
+- ✅ **No permission conflicts** with desktop environment
+- ✅ **Reliable Docker access** with pi:pi ownership
+- ✅ **Automatic cleanup** when USB drives are removed
+- ✅ **Fallback support** for direct `/media/pi/` access
+
+## 🔍 Troubleshooting
+
+### Test USB Setup
+```bash
+# Quick test of bind mount system
+./test-bind-mounts.sh
+
+# Check bind mount service
+sudo systemctl status usb-bind-mount-monitor.service
+
+# View bind mount logs
+sudo journalctl -u usb-bind-mount-monitor.service -f
+```
+
+### Common Issues
+
+#### "Permission Denied" Errors
+```bash
+# Run the USB fix script
+./fix-usb-permissions.sh
+
+# Or manually restart the bind mount service
+sudo systemctl restart usb-bind-mount-monitor.service
+```
+
+#### USB Drives Not Detected
+```bash
+# Check original mounts
+ls -la /media/pi/
+
+# Check bind mounts
+ls -la /home/pi/usb/
+
+# Test container access
+docker-compose exec music-player ls -la /home/pi/usb/
+```
+
+#### Container Not Finding USB Drives
+```bash
+# Verify bind mounts exist
+mount | grep /home/pi/usb
+
+# Check Docker volume mounts
+docker-compose exec music-player mount | grep usb
+
+# Restart everything
+docker-compose down
+sudo systemctl restart usb-bind-mount-monitor.service
+docker-compose up -d
+```
+
+## 📁 Directory Structure
+
+```
+/media/pi/MUSIC           # Desktop auto-mount (root permissions)
+/media/pi/PLAY_CARD       # Desktop auto-mount (root permissions)
+/home/pi/usb/music        # Bind mount (pi permissions) ← Docker uses this
+/home/pi/usb/playcard     # Bind mount (pi permissions) ← Docker uses this
+```
+
+## 🎵 Usage
+
+1. **Insert USB drives** labeled `MUSIC` and `PLAY_CARD`
+2. **Wait for bind mounts** to be created automatically
+3. **Access web interface** at `http://your-pi-ip:5000`
+4. **Control playback** via web interface or control files
+
+### Control Files
+Create files on the `PLAY_CARD` USB drive:
+- `playMusic.txt` - Start/stop playback
+- `nextTrack.txt` - Skip to next track
+- `prevTrack.txt` - Previous track
+- `volumeUp.txt` - Increase volume
+- `volumeDown.txt` - Decrease volume
+
+## 🔧 Advanced Configuration
+
+### Environment Variables (docker-compose.yml)
+```yaml
+environment:
+  - MUSIC_USB_MOUNT=/home/pi/usb/music      # Bind mount path
+  - CONTROL_USB_MOUNT=/home/pi/usb/playcard # Bind mount path
+  - CONTROL_FILE_NAME=playMusic.txt
+  - WEB_PORT=5000
+  - DEFAULT_VOLUME=70
+```
+
+### Service Management
+```bash
+# Bind mount service
+sudo systemctl status usb-bind-mount-monitor.service
+sudo systemctl restart usb-bind-mount-monitor.service
+
+# Music player service
+sudo systemctl status music-player-docker.service
+sudo systemctl restart music-player-docker.service
+```
+
+## 🆘 Support
+
+### Log Files
+```bash
+# Bind mount service logs
+sudo journalctl -u usb-bind-mount-monitor.service -f
+
+# Docker container logs
+docker-compose logs -f music-player
+
+# System USB events
+sudo journalctl -f | grep -i usb
+```
+
+### Quick Fixes
+```bash
+# Reset everything
+sudo systemctl stop usb-bind-mount-monitor.service
+sudo umount /home/pi/usb/* 2>/dev/null || true
+sudo systemctl start usb-bind-mount-monitor.service
+docker-compose restart
+
+# Force bind mount creation
+sudo /usr/local/bin/usb-bind-mount-monitor.sh &
+```
+
+This bind mount approach ensures reliable USB access for Docker while working harmoniously with the Raspberry Pi desktop environment! 🎉

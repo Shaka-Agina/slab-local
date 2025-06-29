@@ -23,7 +23,22 @@ def find_usb_drives_by_label_pattern(label_pattern):
     mounted_drives = []
     
     try:
-        # Look for mount points in /media/pi/ that match the pattern
+        # First check bind mount locations (preferred - stable paths with proper permissions)
+        if label_pattern.startswith("MUSIC"):
+            bind_mount_path = "/home/pi/usb/music"
+            if os.path.exists(bind_mount_path) and usb_is_mounted(bind_mount_path):
+                mounted_drives.append(bind_mount_path)
+                log_message(f"Found bind-mounted USB drive: {bind_mount_path}")
+                return mounted_drives
+        
+        if label_pattern.startswith("PLAY_CARD"):
+            bind_mount_path = "/home/pi/usb/playcard"
+            if os.path.exists(bind_mount_path) and usb_is_mounted(bind_mount_path):
+                mounted_drives.append(bind_mount_path)
+                log_message(f"Found bind-mounted USB drive: {bind_mount_path}")
+                return mounted_drives
+        
+        # Fallback: Look for mount points in /media/pi/ that match the pattern
         pattern_path = f"/media/pi/{label_pattern}"
         matching_paths = glob.glob(pattern_path)
         
