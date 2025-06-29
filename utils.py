@@ -78,14 +78,22 @@ def usb_is_mounted(mount_path):
             return False
         
         # Check if we can list the directory contents
-        # This works better in Docker than os.path.ismount()
         contents = os.listdir(mount_path)
         
-        # For USB drives, we expect at least some content or ability to write
-        # An empty directory might indicate the USB is not mounted
-        # But we'll be more permissive and just check if the path is accessible
-        log_message(f"Mount check for {mount_path}: accessible with {len(contents)} items")
-        return True
+        # For bind mount paths, we need to be more strict about what constitutes "mounted"
+        if mount_path.startswith("/home/pi/usb/"):
+            # Bind mount directories exist even when USB is disconnected, but they're empty
+            # A mounted USB should have at least some files
+            if len(contents) == 0:
+                log_message(f"Mount check for {mount_path}: accessible but empty (USB likely disconnected)")
+                return False
+            else:
+                log_message(f"Mount check for {mount_path}: accessible with {len(contents)} items")
+                return True
+        else:
+            # For traditional mount points (/media/pi/), just being accessible is enough
+            log_message(f"Mount check for {mount_path}: accessible with {len(contents)} items")
+            return True
         
     except (OSError, PermissionError) as e:
         log_message(f"Mount check for {mount_path}: not accessible - {str(e)}")
