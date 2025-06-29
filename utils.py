@@ -18,6 +18,43 @@ def log_message(msg):
     log_messages.append(message)
     print(message)
 
+def find_usb_drives_by_label_pattern(label_pattern):
+    """Find all mounted USB drives that match a label pattern (e.g., 'MUSIC*', 'PLAY_CARD*')."""
+    mounted_drives = []
+    
+    try:
+        # Look for mount points in /media/pi/ that match the pattern
+        pattern_path = f"/media/pi/{label_pattern}"
+        matching_paths = glob.glob(pattern_path)
+        
+        for path in matching_paths:
+            if os.path.exists(path) and os.path.ismount(path):
+                try:
+                    # Test if we can access the directory
+                    os.listdir(path)
+                    mounted_drives.append(path)
+                    log_message(f"Found mounted USB drive: {path}")
+                except (OSError, PermissionError):
+                    log_message(f"Found mount point {path} but cannot access it")
+                    
+    except Exception as e:
+        log_message(f"Error searching for USB drives with pattern {label_pattern}: {str(e)}")
+    
+    return mounted_drives
+
+def find_music_usb():
+    """Find the first mounted MUSIC USB drive (including numbered variants like MUSIC1)."""
+    music_drives = find_usb_drives_by_label_pattern("MUSIC*")
+    
+    if music_drives:
+        # Return the first one found
+        selected_drive = music_drives[0]
+        log_message(f"Using music USB drive: {selected_drive}")
+        return selected_drive
+    
+    log_message("No MUSIC USB drive found")
+    return None
+
 def usb_is_mounted(mount_path):
     """Return True if mount_path is accessible and has content, else False."""
     try:
@@ -40,7 +77,8 @@ def usb_is_mounted(mount_path):
         return False
 
 def find_control_usb():
-    """Find mounted USB device for control files."""
+    """Find mounted USB device for control files (including numbered variants like PLAY_CARD1)."""
+    # First try the configured path (for backward compatibility)
     log_message(f"Checking for control USB at {CONTROL_USB_MOUNT}")
     
     if usb_is_mounted(CONTROL_USB_MOUNT):
@@ -49,11 +87,20 @@ def find_control_usb():
         if os.path.isfile(control_file_path):
             log_message(f"Control USB found at {CONTROL_USB_MOUNT} with control file")
             return CONTROL_USB_MOUNT
-        else:
-            log_message(f"Control USB directory exists at {CONTROL_USB_MOUNT} but no control file found")
-            return None
     
-    log_message(f"Control USB not found at {CONTROL_USB_MOUNT}")
+    # If not found at the configured path, search for any PLAY_CARD* drives
+    log_message("Searching for PLAY_CARD USB drives with dynamic detection...")
+    playcard_drives = find_usb_drives_by_label_pattern("PLAY_CARD*")
+    
+    for drive_path in playcard_drives:
+        control_file_path = os.path.join(drive_path, CONTROL_FILE_NAME)
+        if os.path.isfile(control_file_path):
+            log_message(f"Control USB found at {drive_path} with control file")
+            return drive_path
+        else:
+            log_message(f"PLAY_CARD drive found at {drive_path} but no control file")
+    
+    log_message("No control USB found with required control file")
     return None
 
 def format_track_name(filename):
@@ -64,16 +111,22 @@ def format_track_name(filename):
     return base_without_ext
 
 def find_album_folder(album_name):
-    """Recursively search MUSIC_USB_MOUNT for a folder whose name starts with album_name."""
-    # Check if MUSIC_USB_MOUNT exists first
-    if not usb_is_mounted(MUSIC_USB_MOUNT):
-        log_message(f"Music USB not mounted at {MUSIC_USB_MOUNT}")
+    """Recursively search for a folder whose name starts with album_name in the music USB."""
+    # Get the actual music USB mount point dynamically
+    music_usb_path = find_music_usb()
+    
+    if not music_usb_path:
+        log_message("No music USB drive found")
         return None
         
+    log_message(f"Searching for album '{album_name}' in {music_usb_path}")
     escaped_album = f"{glob.escape(album_name)}*"
-    pattern = os.path.join(MUSIC_USB_MOUNT, "**", escaped_album)
+    pattern = os.path.join(music_usb_path, "**", escaped_album)
     matching_dirs = glob.glob(pattern, recursive=True)
     for d in matching_dirs:
         if os.path.isdir(d):
+            log_message(f"Found album folder: {d}")
             return d
+    
+    log_message(f"No album folder found matching '{album_name}'")
     return None 

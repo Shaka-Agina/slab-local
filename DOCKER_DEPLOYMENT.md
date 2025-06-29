@@ -51,8 +51,12 @@ This guide will help you deploy your USB Music Player on a Raspberry Pi using Do
 3. **Set up USB mounting:**
    ```bash
    sudo apt-get install -y exfat-fuse exfatprogs
-   sudo mkdir -p /media/pi/MUSIC /media/pi/PLAY_CARD
-   sudo chown pi:pi /media/pi/MUSIC /media/pi/PLAY_CARD
+   sudo mkdir -p /media/pi
+   sudo chown pi:pi /media/pi
+   
+   # The deployment script will automatically detect your environment:
+   # - Desktop systems: Uses built-in auto-mounting (clean paths like /media/pi/PLAY_CARD)
+   # - Headless systems: Creates custom udev rules for mounting
    ```
 
 4. **Build and start the container:**

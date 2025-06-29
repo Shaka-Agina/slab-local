@@ -8,7 +8,7 @@ import glob
 from config import CONTROL_FILE_NAME, MUSIC_USB_MOUNT
 from player import player
 from web_interface import start_flask_app
-from utils import log_message, find_album_folder, find_control_usb
+from utils import log_message, find_album_folder, find_control_usb, find_music_usb
 
 def main_loop():
     """
@@ -46,15 +46,20 @@ def main_loop():
                         track_name = request_line.replace("Track:", "").strip()
                         log_message(f"Track requested: {track_name}")
                         
-                        escaped_track = glob.escape(track_name)
-                        matching_tracks = glob.glob(
-                            os.path.join(MUSIC_USB_MOUNT, "**", f"{escaped_track}*"),
-                            recursive=True
-                        )
-                        if matching_tracks:
-                            player.play_single(matching_tracks[0])
+                        # Get the actual music USB mount point dynamically
+                        music_usb_path = find_music_usb()
+                        if music_usb_path:
+                            escaped_track = glob.escape(track_name)
+                            matching_tracks = glob.glob(
+                                os.path.join(music_usb_path, "**", f"{escaped_track}*"),
+                                recursive=True
+                            )
+                            if matching_tracks:
+                                player.play_single(matching_tracks[0])
+                            else:
+                                log_message(f"No matching track named '{track_name}' found in {music_usb_path}.")
                         else:
-                            log_message(f"No matching track named '{track_name}' found in {MUSIC_USB_MOUNT}.")
+                            log_message("No music USB drive found for track search.")
                     else:
                         log_message("Error: playMusic.txt not in valid format. Use 'Album: <folder>' or 'Track: <filename>'.")
                 else:
