@@ -93,17 +93,31 @@ def usb_is_mounted(mount_path):
 
 def find_control_usb():
     """Find mounted USB device for control files (including numbered variants like PLAY_CARD1)."""
-    # First try the configured path (for backward compatibility)
-    log_message(f"Checking for control USB at {CONTROL_USB_MOUNT}")
+    
+    # FIRST: Check bind mount paths (preferred - stable paths with proper permissions)
+    log_message("Checking bind mount paths first...")
+    bind_mount_path = "/home/pi/usb/playcard"
+    
+    if os.path.exists(bind_mount_path) and usb_is_mounted(bind_mount_path):
+        # Additional check: verify the control file exists
+        control_file_path = os.path.join(bind_mount_path, CONTROL_FILE_NAME)
+        if os.path.isfile(control_file_path):
+            log_message(f"Control USB found at bind mount {bind_mount_path} with control file")
+            return bind_mount_path
+        else:
+            log_message(f"Bind mount {bind_mount_path} exists but no control file found")
+    
+    # SECOND: Try the configured path (for backward compatibility)
+    log_message(f"Checking configured path: {CONTROL_USB_MOUNT}")
     
     if usb_is_mounted(CONTROL_USB_MOUNT):
         # Additional check: verify the control file exists
         control_file_path = os.path.join(CONTROL_USB_MOUNT, CONTROL_FILE_NAME)
         if os.path.isfile(control_file_path):
-            log_message(f"Control USB found at {CONTROL_USB_MOUNT} with control file")
+            log_message(f"Control USB found at configured path {CONTROL_USB_MOUNT} with control file")
             return CONTROL_USB_MOUNT
     
-    # If not found at the configured path, search for any PLAY_CARD* drives
+    # THIRD: Search for any PLAY_CARD* drives dynamically
     log_message("Searching for PLAY_CARD USB drives with dynamic detection...")
     playcard_drives = find_usb_drives_by_label_pattern("PLAY_CARD*")
     
