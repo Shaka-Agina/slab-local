@@ -18,8 +18,42 @@ def log_message(msg):
     log_messages.append(message)
     print(message)
 
+def is_usb_accessible(mount_path):
+    """Check if a USB path is actually accessible and has content (Docker-friendly)."""
+    try:
+        if not os.path.exists(mount_path):
+            return False, "Path does not exist"
+        
+        if not os.path.isdir(mount_path):
+            return False, "Not a directory"
+        
+        # Try to list contents with timeout protection
+        try:
+            contents = os.listdir(mount_path)
+        except (OSError, PermissionError) as e:
+            return False, f"Cannot list directory: {str(e)}"
+        
+        if not contents:
+            return False, "Directory is empty"
+        
+        # Additional test: try to access a file to ensure it's really mounted
+        try:
+            for item in contents[:3]:  # Test first 3 items
+                item_path = os.path.join(mount_path, item)
+                if os.path.isfile(item_path):
+                    # Try to get file stats (this will fail if mount is stale)
+                    os.stat(item_path)
+                    break
+        except (OSError, PermissionError) as e:
+            return False, f"Mount appears stale: {str(e)}"
+        
+        return True, f"Accessible with {len(contents)} items"
+        
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}"
+
 def find_music_usb():
-    """Find the music USB by scanning /media/pi/ directly."""
+    """Find the music USB by scanning /media/pi/ directly (Docker-optimized)."""
     log_message("Scanning for music USB drives...")
     
     # Look for mounted USB drives in /media/pi/
@@ -28,45 +62,53 @@ def find_music_usb():
             log_message("Desktop auto-mount directory /media/pi not found")
             return None
             
-        for item in os.listdir("/media/pi"):
+        items = os.listdir("/media/pi")
+        if not items:
+            log_message("No items found in /media/pi")
+            return None
+            
+        for item in items:
             mount_path = f"/media/pi/{item}"
             
-            if os.path.isdir(mount_path) and os.path.ismount(mount_path):
-                log_message(f"Checking mounted drive: {mount_path}")
+            if not os.path.isdir(mount_path):
+                continue
                 
-                try:
-                    # Check if we can access it and it has content
-                    contents = os.listdir(mount_path)
-                    if not contents:
-                        log_message(f"Drive {mount_path} is empty, skipping")
+            # Use our Docker-friendly accessibility check
+            is_accessible, reason = is_usb_accessible(mount_path)
+            log_message(f"Checking mounted drive: {mount_path} - {reason}")
+            
+            if not is_accessible:
+                continue
+            
+            try:
+                contents = os.listdir(mount_path)
+                
+                # Check if it's labeled as MUSIC (exact or with numbers)
+                if item == "MUSIC" or (item.startswith("MUSIC") and item[5:].isdigit()):
+                    log_message(f"Found MUSIC USB: {mount_path}")
+                    return mount_path
+                
+                # Check if it contains music files
+                music_files = []
+                for root, dirs, files in os.walk(mount_path):
+                    # Only check first 2 levels to avoid deep scanning
+                    if root.count(os.sep) - mount_path.count(os.sep) > 2:
                         continue
-                    
-                    # Check if it's labeled as MUSIC (exact or with numbers)
-                    if item == "MUSIC" or (item.startswith("MUSIC") and item[5:].isdigit()):
-                        log_message(f"Found MUSIC USB: {mount_path}")
-                        return mount_path
-                    
-                    # Check if it contains music files
-                    music_files = []
-                    for root, dirs, files in os.walk(mount_path):
-                        # Only check first 2 levels to avoid deep scanning
-                        if root.count(os.sep) - mount_path.count(os.sep) > 2:
-                            continue
-                        for file in files:
-                            if file.lower().endswith(('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')):
-                                music_files.append(file)
-                                break  # Found music, no need to scan more
-                        if music_files:
-                            break
-                    
+                    for file in files:
+                        if file.lower().endswith(('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')):
+                            music_files.append(file)
+                            break  # Found music, no need to scan more
                     if music_files:
-                        log_message(f"Found music files in {mount_path}, using as music USB")
-                        return mount_path
-                        
-                except (OSError, PermissionError) as e:
-                    log_message(f"Cannot access {mount_path}: {str(e)}")
-                    continue
+                        break
+                
+                if music_files:
+                    log_message(f"Found music files in {mount_path}, using as music USB")
+                    return mount_path
                     
+            except (OSError, PermissionError) as e:
+                log_message(f"Cannot access {mount_path}: {str(e)}")
+                continue
+                
     except Exception as e:
         log_message(f"Error scanning for music USB: {str(e)}")
     
@@ -74,7 +116,7 @@ def find_music_usb():
     return None
 
 def find_control_usb():
-    """Find control USB by scanning /media/pi/ directly for control.txt."""
+    """Find control USB by scanning /media/pi/ directly for control.txt (Docker-optimized)."""
     log_message("Scanning for control USB drives...")
     
     # Look for mounted USB drives in /media/pi/
@@ -83,40 +125,53 @@ def find_control_usb():
             log_message("Desktop auto-mount directory /media/pi not found")
             return None
             
-        for item in os.listdir("/media/pi"):
+        items = os.listdir("/media/pi")
+        if not items:
+            log_message("No items found in /media/pi")
+            return None
+            
+        for item in items:
             mount_path = f"/media/pi/{item}"
             
-            if os.path.isdir(mount_path) and os.path.ismount(mount_path):
-                log_message(f"Checking mounted drive for control file: {mount_path}")
+            if not os.path.isdir(mount_path):
+                continue
                 
-                try:
-                    # Check if we can access it
-                    contents = os.listdir(mount_path)
-                    if not contents:
-                        log_message(f"Drive {mount_path} is empty, skipping")
-                        continue
-                    
-                    # Check for control.txt file
-                    control_file_path = os.path.join(mount_path, CONTROL_FILE_NAME)
-                    if os.path.isfile(control_file_path):
-                        log_message(f"Found control file: {control_file_path}")
+            # Use our Docker-friendly accessibility check
+            is_accessible, reason = is_usb_accessible(mount_path)
+            log_message(f"Checking mounted drive for control file: {mount_path} - {reason}")
+            
+            if not is_accessible:
+                continue
+            
+            try:
+                # Check for control.txt file
+                control_file_path = os.path.join(mount_path, CONTROL_FILE_NAME)
+                if os.path.isfile(control_file_path):
+                    # Additional verification: try to read the file
+                    try:
+                        with open(control_file_path, 'r') as f:
+                            content = f.read().strip()
+                        log_message(f"Found control file: {control_file_path} (content: '{content}')")
                         return mount_path
-                    else:
-                        log_message(f"No control.txt in {mount_path}")
-                        
-                except (OSError, PermissionError) as e:
-                    log_message(f"Cannot access {mount_path}: {str(e)}")
-                    continue
+                    except Exception as e:
+                        log_message(f"Control file exists but cannot read: {control_file_path} - {str(e)}")
+                        continue
+                else:
+                    log_message(f"No {CONTROL_FILE_NAME} in {mount_path}")
                     
+            except (OSError, PermissionError) as e:
+                log_message(f"Cannot access {mount_path}: {str(e)}")
+                continue
+                
     except Exception as e:
         log_message(f"Error scanning for control USB: {str(e)}")
     
     log_message("No control USB found")
     return None
 
-def find_control_usb_with_retry(max_retries=3, retry_delay=1):
-    """Find control USB with simple retry for desktop mounting delays."""
-    log_message(f"Attempting to find control USB (max {max_retries} retries)...")
+def find_control_usb_with_retry(max_retries=3, retry_delay=2):
+    """Find control USB with retry - increased delay for Docker mount detection."""
+    log_message(f"Attempting to find control USB (max {max_retries} retries, {retry_delay}s delay)...")
     
     for attempt in range(max_retries):
         if attempt > 0:
@@ -132,29 +187,10 @@ def find_control_usb_with_retry(max_retries=3, retry_delay=1):
     return None
 
 def usb_is_mounted(mount_path):
-    """Return True if mount_path is accessible and has content."""
-    try:
-        if not os.path.exists(mount_path):
-            return False
-        
-        # Check if it's actually mounted
-        if not os.path.ismount(mount_path):
-            return False
-        
-        # Check if we can list the directory and it has content
-        contents = os.listdir(mount_path)
-        has_content = len(contents) > 0
-        
-        if has_content:
-            log_message(f"USB mounted and accessible: {mount_path} ({len(contents)} items)")
-        else:
-            log_message(f"USB mounted but empty: {mount_path}")
-        
-        return has_content
-        
-    except (OSError, PermissionError) as e:
-        log_message(f"USB not accessible: {mount_path} - {str(e)}")
-        return False
+    """Return True if mount_path is accessible and has content (Docker-friendly)."""
+    is_accessible, reason = is_usb_accessible(mount_path)
+    log_message(f"USB mount check for {mount_path}: {reason}")
+    return is_accessible
 
 def format_track_name(filename):
     """Decode URL-encoded filename and return its basename without extension."""

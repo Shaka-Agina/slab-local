@@ -35,9 +35,9 @@ def test_native_usb_detection():
     control_usb = find_control_usb()
     if control_usb:
         print(f"   ✅ Control USB found: {control_usb}")
-        control_file = os.path.join(control_usb, "control.txt")
+        control_file = os.path.join(control_usb, "playMusic.txt")
         if os.path.isfile(control_file):
-            print(f"   ✅ control.txt found: {control_file}")
+            print(f"   ✅ playMusic.txt found: {control_file}")
             try:
                 with open(control_file, 'r') as f:
                     content = f.read().strip()
@@ -45,7 +45,7 @@ def test_native_usb_detection():
             except Exception as e:
                 print(f"   ❌ Error reading control file: {e}")
         else:
-            print(f"   ❌ control.txt not found in {control_usb}")
+            print(f"   ❌ playMusic.txt not found in {control_usb}")
     else:
         print("   ❌ No control USB found")
     

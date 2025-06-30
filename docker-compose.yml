@@ -11,8 +11,6 @@ services:
     
     # Environment variables
     environment:
-      - MUSIC_USB_MOUNT=/home/pi/usb/music
-      - CONTROL_USB_MOUNT=/home/pi/usb/playcard
       - CONTROL_FILE_NAME=playMusic.txt
       - WEB_PORT=5000
       - DEFAULT_VOLUME=70
@@ -20,20 +18,24 @@ services:
     
     # Volume mounts
     volumes:
-      # USB bind mounts (stable paths with proper permissions)
-      - /home/pi/usb:/home/pi/usb:rw
+      # Native USB detection - make /media/pi read-write for better Docker compatibility
+      - /media/pi:/media/pi:rw
       
-      # Legacy support for any direct /media/pi access
-      - /media/pi:/media/pi:ro
+      # Legacy mount points (remove when fully migrated)
+      - /home/pi/usb:/home/pi/usb:rw
       - /mnt:/mnt:rw
       
       # Audio system access
       - /run/user/1000/pulse:/run/user/1000/pulse:rw
       - /dev/snd:/dev/snd:rw
       
-      # USB device access
+      # USB device access for better detection
       - /dev/bus/usb:/dev/bus/usb:rw
       - /run/udev:/run/udev:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      
+      # Mount table access for better mount detection
+      - /proc/mounts:/proc/mounts:ro
       
       # Configuration persistence
       - ./config:/app/config:rw
@@ -47,6 +49,11 @@ services:
     
     # Privileged mode for USB and audio access
     privileged: true
+    
+    # Add capabilities for mount detection
+    cap_add:
+      - SYS_ADMIN
+      - DAC_OVERRIDE
         
     # Health check
     healthcheck:

@@ -9,7 +9,7 @@ def load_config():
     config = configparser.ConfigParser()
     
     config['DEFAULT'] = {
-        'CONTROL_FILE_NAME': os.environ.get('CONTROL_FILE_NAME', 'control.txt'),
+        'CONTROL_FILE_NAME': os.environ.get('CONTROL_FILE_NAME', 'playMusic.txt'),
         'WEB_PORT': os.environ.get('WEB_PORT', '5000'),
         'DEFAULT_VOLUME': os.environ.get('DEFAULT_VOLUME', '70'),
         'AUDIO_OUTPUT': os.environ.get('AUDIO_OUTPUT', 'pulse'),
