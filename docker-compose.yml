@@ -32,10 +32,6 @@ services:
       # USB device access for better detection
       - /dev/bus/usb:/dev/bus/usb:rw
       - /run/udev:/run/udev:ro
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
-      
-      # Mount table access for better mount detection
-      - /proc/mounts:/proc/mounts:ro
       
       # Configuration persistence
       - ./config:/app/config:rw
