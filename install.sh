@@ -272,232 +272,140 @@ if pgrep -x "lxsession" > /dev/null || pgrep -x "pcmanfm" > /dev/null || [ -n "$
     sudo bash -c "cat > /usr/local/bin/usb-bind-monitor.sh << 'EOL'
 #!/bin/bash
 
-# USB Bind Mount Monitor for Desktop Environments - Enhanced Version
+# Simple USB Bind Mount Monitor - Static Mount Points
 LOG_FILE=\"/var/log/usb-bind-mounts.log\"
-BIND_BASE=\"/home/pi/usb\"
+MUSIC_BIND=\"/home/pi/usb/music\"
+CONTROL_BIND=\"/home/pi/usb/playcard\"
 
 log_message() {
     echo \"\$(date '+%Y-%m-%d %H:%M:%S') - \$1\" | tee -a \"\$LOG_FILE\"
 }
 
-wait_for_mount_complete() {
-    local mount_point=\"\$1\"
-    local max_wait=10
-    local count=0
-    
-    log_message \"Waiting for mount to complete: \$mount_point\"
-    
-    while [ \$count -lt \$max_wait ]; do
-        if mountpoint -q \"\$mount_point\" && [ -n \"\$(ls -A \"\$mount_point\" 2>/dev/null)\" ]; then
-            log_message \"Mount completed after \$count seconds: \$mount_point\"
-            return 0
-        fi
-        sleep 1
-        count=\$((count + 1))
-    done
-    
-    log_message \"Mount timeout after \$max_wait seconds: \$mount_point\"
-    return 1
+# Create static mount points (always exist)
+setup_static_mounts() {
+    mkdir -p \"\$MUSIC_BIND\" \"\$CONTROL_BIND\"
+    chown pi:pi \"\$MUSIC_BIND\" \"\$CONTROL_BIND\"
+    log_message \"Static mount points created: \$MUSIC_BIND, \$CONTROL_BIND\"
 }
 
-create_bind_mount() {
+# Simple function to bind mount if not already mounted
+bind_usb_to_static() {
     local source=\"\$1\"
-    local label=\"\$2\"
-    local target=\"\$BIND_BASE/\$label\"
+    local target=\"\$2\"
+    local label=\"\$3\"
     
-    # Ensure target directory exists
-    if [ ! -d \"\$target\" ]; then
-        mkdir -p \"\$target\"
-        chown pi:pi \"\$target\"
-    fi
-    
-    # Check if already bind mounted
+    # Check if target is already bind mounted
     if mountpoint -q \"\$target\"; then
-        log_message \"Bind mount already exists: \$target\"
-        return 0
-    fi
-    
-    # Wait for source mount to be fully ready
-    if ! wait_for_mount_complete \"\$source\"; then
-        log_message \"Source mount not ready, skipping bind mount: \$source\"
-        return 1
-    fi
-    
-    # Create bind mount
-    if mount --bind \"\$source\" \"\$target\"; then
-        log_message \"Created bind mount: \$source -> \$target\"
-        chown pi:pi \"\$target\" 2>/dev/null || true
-        
-        # Additional verification for control files
-        if [ \"\$label\" = \"playcard\" ]; then
-            if [ -f \"\$target/control.txt\" ]; then
-                log_message \"Control file verified in bind mount: \$target/control.txt\"
-            else
-                log_message \"WARNING: Control file not found in bind mount: \$target/control.txt\"
-            fi
-        fi
-        
-        return 0
-    else
-        log_message \"Failed to create bind mount: \$source -> \$target\"
-        return 1
-    fi
-}
-
-remove_bind_mount() {
-    local target=\"\$1\"
-    
-    if mountpoint -q \"\$target\"; then
-        if umount \"\$target\"; then
-            log_message \"Removed bind mount: \$target\"
+        # Check if it's the same source
+        current_source=\$(findmnt -n -o SOURCE \"\$target\" 2>/dev/null)
+        if [ \"\$current_source\" = \"\$source\" ]; then
+            return 0  # Already correctly mounted
         else
-            log_message \"Failed to remove bind mount: \$target\"
+            log_message \"Unmounting old bind mount: \$target (was: \$current_source)\"
+            umount \"\$target\" 2>/dev/null || true
         fi
     fi
-}
-
-has_music_files() {
-    local mount_point=\"\$1\"
-    # Check for common music file extensions
-    if find \"\$mount_point\" -maxdepth 3 -type f \\( -iname '*.mp3' -o -iname '*.wav' -o -iname '*.flac' -o -iname '*.m4a' -o -iname '*.aac' -o -iname '*.ogg' \\) -print -quit | grep -q .; then
-        return 0
+    
+    # Wait a moment for USB to be fully ready
+    sleep 2
+    
+    # Check if source is accessible and has content
+    if [ -d \"\$source\" ] && mountpoint -q \"\$source\" && [ -n \"\$(ls -A \"\$source\" 2>/dev/null)\" ]; then
+        if mount --bind \"\$source\" \"\$target\"; then
+            log_message \"SUCCESS: Bind mounted \$source -> \$target (\$label)\"
+            
+            # Verify specific content for control USB
+            if [ \"\$label\" = \"control\" ] && [ -f \"\$target/control.txt\" ]; then
+                log_message \"VERIFIED: Control file found at \$target/control.txt\"
+            elif [ \"\$label\" = \"control\" ]; then
+                log_message \"WARNING: Control USB mounted but no control.txt file found\"
+            fi
+            
+            return 0
+        else
+            log_message \"FAILED: Could not bind mount \$source -> \$target\"
+            return 1
+        fi
     else
+        log_message \"SKIPPED: Source not ready or empty: \$source\"
         return 1
     fi
 }
 
-has_control_file() {
-    local mount_point=\"\$1\"
-    if [ -f \"\$mount_point/control.txt\" ]; then
-        log_message \"Control file found: \$mount_point/control.txt\"
-        return 0
-    else
-        log_message \"No control file in: \$mount_point\"
-        return 1
-    fi
+# Clean up orphaned mounts (only unmount if source USB is gone)
+cleanup_orphaned_mounts() {
+    for target in \"\$MUSIC_BIND\" \"\$CONTROL_BIND\"; do
+        if mountpoint -q \"\$target\"; then
+            source=\$(findmnt -n -o SOURCE \"\$target\" 2>/dev/null)
+            if [ -n \"\$source\" ]; then
+                # Check if the original USB mount point still exists and is mounted
+                if ! mountpoint -q \"\$source\" 2>/dev/null; then
+                    log_message \"Cleaning up orphaned bind mount: \$target (source \$source no longer mounted)\"
+                    umount \"\$target\" 2>/dev/null || true
+                fi
+            fi
+        fi
+    done
 }
 
-scan_usb_drives() {
-    log_message \"Scanning for USB drives...\"
+# Scan for USB drives and bind mount them to static points
+scan_and_bind_usb() {
+    log_message \"Scanning for USB drives to bind mount...\"
     
-    # Look for desktop-mounted USB drives
-    for mount_point in /media/pi/*; do
-        if [ -d \"\$mount_point\" ] && mountpoint -q \"\$mount_point\"; then
-            label=\$(basename \"\$mount_point\")
-            log_message \"Found mounted drive: \$mount_point (label: \$label)\"
+    # Look for mounted USB drives in /media/pi/
+    for usb_mount in /media/pi/*; do
+        if [ -d \"\$usb_mount\" ] && mountpoint -q \"\$usb_mount\"; then
+            usb_label=\$(basename \"\$usb_mount\")
+            log_message \"Found USB drive: \$usb_mount (label: \$usb_label)\"
             
-            # Check for music drives
-            if [ \"\$label\" = \"MUSIC\" ] || [[ \"\$label\" =~ ^MUSIC[0-9]*\$ ]] || has_music_files \"\$mount_point\"; then
-                log_message \"Identified as music drive: \$mount_point\"
-                create_bind_mount \"\$mount_point\" \"music\"
+            # Check for music USB (MUSIC or MUSIC with numbers, or has music files)
+            if [[ \"\$usb_label\" =~ ^MUSIC[0-9]*\$ ]] || [ \"\$usb_label\" = \"MUSIC\" ]; then
+                log_message \"Detected MUSIC USB: \$usb_mount\"
+                bind_usb_to_static \"\$usb_mount\" \"\$MUSIC_BIND\" \"music\"
+            elif find \"\$usb_mount\" -maxdepth 2 -type f \\( -iname '*.mp3' -o -iname '*.wav' -o -iname '*.flac' -o -iname '*.m4a' \\) -print -quit | grep -q .; then
+                log_message \"Detected music files in: \$usb_mount\"
+                bind_usb_to_static \"\$usb_mount\" \"\$MUSIC_BIND\" \"music\"
             fi
             
-            # Check for control drives (more comprehensive check)
-            if [ \"\$label\" = \"PLAY_CARD\" ] || [[ \"\$label\" =~ ^PLAY_CARD[0-9]*\$ ]] || has_control_file \"\$mount_point\"; then
-                log_message \"Identified as control drive: \$mount_point\"
-                create_bind_mount \"\$mount_point\" \"playcard\"
+            # Check for control USB (PLAY_CARD or has control.txt)
+            if [[ \"\$usb_label\" =~ ^PLAY_CARD[0-9]*\$ ]] || [ \"\$usb_label\" = \"PLAY_CARD\" ]; then
+                log_message \"Detected PLAY_CARD USB: \$usb_mount\"
+                bind_usb_to_static \"\$usb_mount\" \"\$CONTROL_BIND\" \"control\"
+            elif [ -f \"\$usb_mount/control.txt\" ]; then
+                log_message \"Detected control.txt in: \$usb_mount\"
+                bind_usb_to_static \"\$usb_mount\" \"\$CONTROL_BIND\" \"control\"
             fi
         fi
     done
     
-    # Clean up orphaned bind mounts
-    for bind_mount in \"\$BIND_BASE\"/*; do
-        if [ -d \"\$bind_mount\" ] && mountpoint -q \"\$bind_mount\"; then
-            # Check if source still exists
-            source=\$(findmnt -n -o SOURCE \"\$bind_mount\" 2>/dev/null)
-            if [ -z \"\$source\" ] || ! mountpoint -q \"\$source\"; then
-                log_message \"Cleaning up orphaned bind mount: \$bind_mount\"
-                remove_bind_mount \"\$bind_mount\"
-            fi
-        fi
-    done
-    
-    log_message \"USB drive scan completed\"
+    # Clean up any orphaned mounts
+    cleanup_orphaned_mounts
 }
 
-periodic_scan() {
-    log_message \"Running periodic USB scan...\"
-    scan_usb_drives
-}
-
-monitor_usb_changes() {
-    log_message \"Starting USB bind mount monitor with enhanced detection\"
+# Main monitoring function
+monitor_usb() {
+    log_message \"Starting simple USB bind mount monitor\"
     
-    # Create bind mount base directory
-    mkdir -p \"\$BIND_BASE\"
-    chown pi:pi \"\$BIND_BASE\"
+    # Set up static mount points
+    setup_static_mounts
     
     # Initial scan
-    scan_usb_drives
+    scan_and_bind_usb
     
-    # Set up periodic scanning in background (every 30 seconds)
-    while true; do
-        sleep 30
-        periodic_scan
-    done &
-    
-    # Monitor /media/pi for changes with inotify
-    inotifywait -m -e create,delete,move,moved_to,moved_from /media/pi 2>/dev/null | while read path action file; do
-        log_message \"USB change detected: \$action \$file in \$path\"
+    # Monitor /media/pi for changes
+    inotifywait -m -e create,delete,moved_to,moved_from /media/pi 2>/dev/null | while read path action file; do
+        log_message \"USB event: \$action \$file\"
         
-        # Wait longer for desktop environment to complete mounting
-        sleep 5
+        # Wait for mount to stabilize
+        sleep 3
         
-        # Additional wait if it's a create event (new USB)
-        if [[ \"\$action\" == \"CREATE\" || \"\$action\" == \"MOVED_TO\" ]]; then
-            log_message \"New USB detected, waiting additional time for mount completion...\"
-            sleep 5
-        fi
-        
-        scan_usb_drives
+        # Re-scan after any change
+        scan_and_bind_usb
     done
 }
 
 # Start monitoring
-monitor_usb_changes
-EOL"
-
-    sudo chmod +x /usr/local/bin/usb-bind-monitor.sh
-
-    # Create systemd service for USB bind mount monitoring
-    sudo bash -c "cat > /etc/systemd/system/usb-bind-monitor.service << 'EOL'
-[Unit]
-Description=USB Bind Mount Monitor for Music Player
-After=multi-user.target
-Wants=network.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
-
-[Service]
-Type=simple
-User=root
-Group=root
-ExecStart=/usr/local/bin/usb-bind-monitor.sh
-Restart=always
-RestartSec=10
-RestartPreventExitStatus=0
-StandardOutput=append:/var/log/usb-bind-mounts.log
-StandardError=append:/var/log/usb-bind-mounts.log
-KillMode=mixed
-KillSignal=SIGTERM
-TimeoutStopSec=30
-
-# Make sure required directories exist
-ExecStartPre=/bin/mkdir -p /home/pi/usb
-ExecStartPre=/bin/chown -R pi:pi /home/pi/usb
-
-# Environment variables
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-[Install]
-WantedBy=multi-user.target
-EOL"
-
-    sudo systemctl daemon-reload
-    sudo systemctl enable usb-bind-monitor.service
-    sudo systemctl start usb-bind-monitor.service
-
-    echo "✅ USB auto-mounting configured with desktop environment compatibility"
+monitor_usb
 
 else
     echo "No desktop environment detected - setting up custom udev rules..."
