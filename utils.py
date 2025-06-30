@@ -18,6 +18,24 @@ def log_message(msg):
     log_messages.append(message)
     print(message)
 
+def wait_for_mount_ready(mount_path, max_wait=10):
+    """Wait for a mount point to be fully ready with content."""
+    for i in range(max_wait):
+        try:
+            if os.path.exists(mount_path) and os.path.ismount(mount_path):
+                # Check if we can list contents and it's not empty
+                contents = os.listdir(mount_path)
+                if contents:  # Mount point has content
+                    log_message(f"Mount point ready after {i}s: {mount_path} ({len(contents)} items)")
+                    return True
+            time.sleep(1)
+        except (OSError, PermissionError):
+            time.sleep(1)
+            continue
+    
+    log_message(f"Mount point not ready after {max_wait}s: {mount_path}")
+    return False
+
 def find_usb_drives_by_label_pattern(label_pattern):
     """Find all mounted USB drives that match a label pattern (e.g., 'MUSIC*', 'PLAY_CARD*')."""
     mounted_drives = []
@@ -26,32 +44,58 @@ def find_usb_drives_by_label_pattern(label_pattern):
         # First check bind mount locations (preferred - stable paths with proper permissions)
         if label_pattern.startswith("MUSIC"):
             bind_mount_path = "/home/pi/usb/music"
-            if os.path.exists(bind_mount_path) and usb_is_mounted(bind_mount_path):
-                mounted_drives.append(bind_mount_path)
-                log_message(f"Found bind-mounted USB drive: {bind_mount_path}")
-                return mounted_drives
+            if os.path.exists(bind_mount_path):
+                # Wait a bit for bind mount to be ready
+                if wait_for_mount_ready(bind_mount_path, max_wait=5):
+                    mounted_drives.append(bind_mount_path)
+                    log_message(f"Found bind-mounted USB drive: {bind_mount_path}")
+                    return mounted_drives
+                elif usb_is_mounted(bind_mount_path):
+                    # Fallback: even if not fully ready, try to use it
+                    mounted_drives.append(bind_mount_path)
+                    log_message(f"Found bind-mounted USB drive (not fully ready): {bind_mount_path}")
+                    return mounted_drives
         
         if label_pattern.startswith("PLAY_CARD"):
             bind_mount_path = "/home/pi/usb/playcard"
-            if os.path.exists(bind_mount_path) and usb_is_mounted(bind_mount_path):
-                mounted_drives.append(bind_mount_path)
-                log_message(f"Found bind-mounted USB drive: {bind_mount_path}")
-                return mounted_drives
+            if os.path.exists(bind_mount_path):
+                # For control USB, be more patient and check for control file
+                if wait_for_mount_ready(bind_mount_path, max_wait=10):
+                    # Additional check for control file
+                    control_file_path = os.path.join(bind_mount_path, CONTROL_FILE_NAME)
+                    if os.path.isfile(control_file_path):
+                        mounted_drives.append(bind_mount_path)
+                        log_message(f"Found bind-mounted control USB with control file: {bind_mount_path}")
+                        return mounted_drives
+                    else:
+                        log_message(f"Bind-mounted USB found but no control file: {bind_mount_path}")
+                elif usb_is_mounted(bind_mount_path):
+                    # Fallback check
+                    control_file_path = os.path.join(bind_mount_path, CONTROL_FILE_NAME)
+                    if os.path.isfile(control_file_path):
+                        mounted_drives.append(bind_mount_path)
+                        log_message(f"Found bind-mounted control USB (slow mount): {bind_mount_path}")
+                        return mounted_drives
         
         # Fallback: Look for mount points in /media/pi/ that match the pattern
         pattern_path = f"/media/pi/{label_pattern}"
         matching_paths = glob.glob(pattern_path)
         
         for path in matching_paths:
-            if os.path.exists(path) and os.path.ismount(path):
-                try:
-                    # Test if we can access the directory
-                    os.listdir(path)
+            if os.path.exists(path):
+                # Wait for mount to be ready
+                if wait_for_mount_ready(path, max_wait=5):
                     mounted_drives.append(path)
                     log_message(f"Found mounted USB drive: {path}")
-                except (OSError, PermissionError):
-                    log_message(f"Found mount point {path} but cannot access it")
-                    
+                elif os.path.ismount(path):
+                    # Fallback: try even if not fully ready
+                    try:
+                        os.listdir(path)  # Test access
+                        mounted_drives.append(path)
+                        log_message(f"Found mounted USB drive (not fully ready): {path}")
+                    except (OSError, PermissionError):
+                        log_message(f"Found mount point {path} but cannot access it")
+                        
     except Exception as e:
         log_message(f"Error searching for USB drives with pattern {label_pattern}: {str(e)}")
     
@@ -99,6 +143,20 @@ def usb_is_mounted(mount_path):
         log_message(f"Mount check for {mount_path}: not accessible - {str(e)}")
         return False
 
+def find_control_usb_with_retry(max_retries=3, retry_delay=2):
+    """Find control USB with retry logic for timing issues."""
+    for attempt in range(max_retries):
+        if attempt > 0:
+            log_message(f"Retrying control USB detection (attempt {attempt + 1}/{max_retries})...")
+            time.sleep(retry_delay)
+        
+        result = find_control_usb()
+        if result:
+            return result
+    
+    log_message(f"Failed to find control USB after {max_retries} attempts")
+    return None
+
 def find_control_usb():
     """Find mounted USB device for control files (including numbered variants like PLAY_CARD1)."""
     
@@ -106,14 +164,23 @@ def find_control_usb():
     log_message("Checking bind mount paths first...")
     bind_mount_path = "/home/pi/usb/playcard"
     
-    if os.path.exists(bind_mount_path) and usb_is_mounted(bind_mount_path):
-        # Additional check: verify the control file exists
-        control_file_path = os.path.join(bind_mount_path, CONTROL_FILE_NAME)
-        if os.path.isfile(control_file_path):
-            log_message(f"Control USB found at bind mount {bind_mount_path} with control file")
-            return bind_mount_path
-        else:
-            log_message(f"Bind mount {bind_mount_path} exists but no control file found")
+    if os.path.exists(bind_mount_path):
+        # Wait for bind mount to be ready
+        if wait_for_mount_ready(bind_mount_path, max_wait=5) or usb_is_mounted(bind_mount_path):
+            # Additional check: verify the control file exists
+            control_file_path = os.path.join(bind_mount_path, CONTROL_FILE_NAME)
+            if os.path.isfile(control_file_path):
+                log_message(f"Control USB found at bind mount {bind_mount_path} with control file")
+                return bind_mount_path
+            else:
+                log_message(f"Bind mount {bind_mount_path} exists but no control file found")
+                # Try to wait a bit more for the file to appear
+                for i in range(5):
+                    time.sleep(1)
+                    if os.path.isfile(control_file_path):
+                        log_message(f"Control file appeared after {i+1}s wait: {control_file_path}")
+                        return bind_mount_path
+                log_message(f"Control file still not found after extended wait: {control_file_path}")
     
     # SECOND: Try the configured path (for backward compatibility)
     log_message(f"Checking configured path: {CONTROL_USB_MOUNT}")
@@ -136,6 +203,18 @@ def find_control_usb():
             return drive_path
         else:
             log_message(f"PLAY_CARD drive found at {drive_path} but no control file")
+    
+    # FOURTH: Try to find ANY USB with a control.txt file (last resort)
+    log_message("Last resort: searching all USB drives for control.txt...")
+    try:
+        for mount_point in glob.glob("/media/pi/*"):
+            if os.path.isdir(mount_point) and os.path.ismount(mount_point):
+                control_file_path = os.path.join(mount_point, CONTROL_FILE_NAME)
+                if os.path.isfile(control_file_path):
+                    log_message(f"Control file found on unlabeled USB: {mount_point}")
+                    return mount_point
+    except Exception as e:
+        log_message(f"Error in last resort search: {str(e)}")
     
     log_message("No control USB found with required control file")
     return None
