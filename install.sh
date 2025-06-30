@@ -159,6 +159,16 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
     # Configure PulseAudio for user session
     systemctl --user enable pulseaudio 2>/dev/null || true
     systemctl --user start pulseaudio 2>/dev/null || true
+    
+    # Run audio optimization setup
+    print_status "Optimizing audio configuration for music playback..."
+    if [ -f "fix-audio-setup.sh" ]; then
+        chmod +x fix-audio-setup.sh
+        ./fix-audio-setup.sh
+        print_status "✅ Audio system optimized"
+    else
+        print_warning "Audio optimization script not found, skipping..."
+    fi
 fi
 
 print_step "4/7 - Setting Up USB Auto-mounting"
@@ -228,6 +238,15 @@ print_status "Creating configuration directories..."
 mkdir -p ./config
 mkdir -p ./logs
 chown -R pi:pi ./config ./logs
+
+# Make helper scripts executable
+print_status "Setting up helper scripts..."
+for script in clean-macos-files.sh kill-bind-mount-service.sh emergency-unmount.sh fix-audio-setup.sh post-install-check.sh; do
+    if [ -f "$script" ]; then
+        chmod +x "$script"
+        print_status "✅ Made $script executable"
+    fi
+done
 
 if [ "$DEPLOYMENT_METHOD" = "native" ]; then
     print_status "Starting native music player service..."
@@ -305,6 +324,20 @@ echo "• volumeUp.txt - Increase volume"
 echo "• volumeDown.txt - Decrease volume"
 echo ""
 
+echo "🛠️ Troubleshooting Tools:"
+echo "• ./clean-macos-files.sh - Remove macOS hidden files (._*) from MUSIC USB"
+echo "• ./fix-audio-setup.sh - Fix PulseAudio/ALSA audio issues"
+echo "• ./kill-bind-mount-service.sh - Stop any leftover bind mount services"
+echo "• ./emergency-unmount.sh - Force unmount stuck USB drives"
+echo ""
+
+echo "🎵 Common Issues & Solutions:"
+echo "• Music files not playing: Run './clean-macos-files.sh' to remove ._* files"
+echo "• Audio overflow errors: Audio optimization was applied during install"
+echo "• Quadruple USB mounting: Run './kill-bind-mount-service.sh' if present"
+echo "• Control file not working: Check PLAY_CARD USB is properly mounted"
+echo ""
+
 if [ "$DEPLOYMENT_METHOD" = "native" ]; then
     echo "✨ Benefits of Native Deployment:"
     echo "• No USB permission issues"
@@ -315,4 +348,12 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
 fi
 
 echo ""
-print_status "Installation complete! Insert your USB drives and enjoy your music! 🎵" 
+print_status "Installation complete! Insert your USB drives and enjoy your music! 🎵"
+
+echo ""
+echo "🔍 Running post-installation validation..."
+if [ -f "post-install-check.sh" ]; then
+    ./post-install-check.sh
+else
+    print_warning "Post-install check script not found"
+fi 

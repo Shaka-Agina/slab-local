@@ -19,8 +19,24 @@ class MusicPlayer:
     def __init__(self):
         """Initialize the music player"""
         try:
-            # Create VLC instance
-            self.vlc_instance = vlc.Instance('--intf', 'dummy', '--no-video')
+            # Create VLC instance with optimized audio settings for Raspberry Pi
+            vlc_args = [
+                '--intf', 'dummy',
+                '--no-video',
+                '--aout', 'alsa',  # Use ALSA instead of PulseAudio
+                '--alsa-audio-device', 'default',
+                '--audio-resampler', 'soxr',  # Better resampling
+                '--no-audio-time-stretch',  # Disable time stretching
+                '--audio-replay-gain-mode', 'none',  # Disable replay gain
+                '--no-sout-video',  # Disable video output completely
+                '--file-caching', '1000',  # 1 second file cache
+                '--network-caching', '1000',  # 1 second network cache
+                '--live-caching', '300',  # 300ms live cache
+                '--clock-jitter', '0',  # Disable clock jitter
+                '--clock-synchro', '0'  # Disable clock sync
+            ]
+            
+            self.vlc_instance = vlc.Instance(vlc_args)
             self.media_player = self.vlc_instance.media_player_new()
             
             # Player state
@@ -49,7 +65,7 @@ class MusicPlayer:
             self.control_monitor_thread = None
             self.control_monitor_running = False
             
-            log_message("VLC Music Player initialized")
+            log_message("VLC Music Player initialized with ALSA audio output")
             
         except Exception as e:
             log_message(f"Error initializing VLC player: {str(e)}")
