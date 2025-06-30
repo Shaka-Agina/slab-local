@@ -5,23 +5,23 @@ import os
 import time
 import threading
 import glob
-from config import CONTROL_FILE_NAME, MUSIC_USB_MOUNT
+from config import CONTROL_FILE_NAME
 from player import player
 from web_interface import start_flask_app
 from utils import log_message, find_album_folder, find_control_usb_with_retry, find_music_usb
 
 def main_loop():
     """
-    Monitor the control USB:
+    Monitor the control USB using native detection:
       - On a fresh mount event (transition from unmounted to mounted),
         always stop current playback and re-read the control file to start new playback.
       - On unmount, always stop playback.
     """
     previously_mounted = False
-    log_message("Starting USB monitoring loop...")
+    log_message("Starting native USB monitoring loop...")
     
     while True:
-        # Check for control USB using static mount point
+        # Check for control USB using native detection
         control_usb = find_control_usb_with_retry(max_retries=1, retry_delay=0.5)  # Quick check
         
         if control_usb:
@@ -49,7 +49,7 @@ def main_loop():
                         track_name = request_line.replace("Track:", "").strip()
                         log_message(f"Track requested: {track_name}")
                         
-                        # Get the actual music USB mount point
+                        # Get the actual music USB mount point using native detection
                         music_usb_path = find_music_usb()
                         if music_usb_path:
                             escaped_track = glob.escape(track_name)
@@ -83,7 +83,7 @@ def main_loop():
         time.sleep(2)
 
 if __name__ == "__main__":
-    log_message("Starting Raspberry Pi Music Player")
+    log_message("Starting Raspberry Pi Music Player with Native USB Detection")
     
     # Start Flask web interface in a separate thread
     flask_thread = threading.Thread(target=start_flask_app, daemon=True)

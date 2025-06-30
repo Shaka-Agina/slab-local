@@ -6,7 +6,7 @@ import time
 import glob
 import subprocess
 from urllib.parse import unquote
-from config import MUSIC_USB_MOUNT, CONTROL_USB_MOUNT, CONTROL_FILE_NAME
+from config import CONTROL_FILE_NAME
 
 # Global log variable
 log_messages = []
