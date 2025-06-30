@@ -19,40 +19,126 @@ def log_message(msg):
     print(message)
 
 def find_music_usb():
-    """Find the music USB using static bind mount point."""
-    # First check the static bind mount point
-    static_path = "/home/pi/usb/music"
+    """Find the music USB by scanning /media/pi/ directly."""
+    log_message("Scanning for music USB drives...")
     
-    if os.path.exists(static_path):
-        try:
-            # Check if it has content (meaning a USB is bound to it)
-            contents = os.listdir(static_path)
-            if contents:  # Has files/folders
-                log_message(f"Music USB found at static mount: {static_path} ({len(contents)} items)")
-                return static_path
-            else:
-                log_message(f"Static mount point exists but empty: {static_path}")
-        except (OSError, PermissionError) as e:
-            log_message(f"Cannot access static mount point: {static_path} - {str(e)}")
-    
-    # Fallback: Look for traditional mount points
-    for mount_point in glob.glob("/media/pi/MUSIC*"):
-        if os.path.isdir(mount_point) and os.path.ismount(mount_point):
-            try:
-                contents = os.listdir(mount_point)
-                if contents:
-                    log_message(f"Music USB found at traditional mount: {mount_point}")
-                    return mount_point
-            except (OSError, PermissionError):
-                continue
+    # Look for mounted USB drives in /media/pi/
+    try:
+        if not os.path.exists("/media/pi"):
+            log_message("Desktop auto-mount directory /media/pi not found")
+            return None
+            
+        for item in os.listdir("/media/pi"):
+            mount_path = f"/media/pi/{item}"
+            
+            if os.path.isdir(mount_path) and os.path.ismount(mount_path):
+                log_message(f"Checking mounted drive: {mount_path}")
+                
+                try:
+                    # Check if we can access it and it has content
+                    contents = os.listdir(mount_path)
+                    if not contents:
+                        log_message(f"Drive {mount_path} is empty, skipping")
+                        continue
+                    
+                    # Check if it's labeled as MUSIC (exact or with numbers)
+                    if item == "MUSIC" or (item.startswith("MUSIC") and item[5:].isdigit()):
+                        log_message(f"Found MUSIC USB: {mount_path}")
+                        return mount_path
+                    
+                    # Check if it contains music files
+                    music_files = []
+                    for root, dirs, files in os.walk(mount_path):
+                        # Only check first 2 levels to avoid deep scanning
+                        if root.count(os.sep) - mount_path.count(os.sep) > 2:
+                            continue
+                        for file in files:
+                            if file.lower().endswith(('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')):
+                                music_files.append(file)
+                                break  # Found music, no need to scan more
+                        if music_files:
+                            break
+                    
+                    if music_files:
+                        log_message(f"Found music files in {mount_path}, using as music USB")
+                        return mount_path
+                        
+                except (OSError, PermissionError) as e:
+                    log_message(f"Cannot access {mount_path}: {str(e)}")
+                    continue
+                    
+    except Exception as e:
+        log_message(f"Error scanning for music USB: {str(e)}")
     
     log_message("No music USB found")
     return None
 
+def find_control_usb():
+    """Find control USB by scanning /media/pi/ directly for control.txt."""
+    log_message("Scanning for control USB drives...")
+    
+    # Look for mounted USB drives in /media/pi/
+    try:
+        if not os.path.exists("/media/pi"):
+            log_message("Desktop auto-mount directory /media/pi not found")
+            return None
+            
+        for item in os.listdir("/media/pi"):
+            mount_path = f"/media/pi/{item}"
+            
+            if os.path.isdir(mount_path) and os.path.ismount(mount_path):
+                log_message(f"Checking mounted drive for control file: {mount_path}")
+                
+                try:
+                    # Check if we can access it
+                    contents = os.listdir(mount_path)
+                    if not contents:
+                        log_message(f"Drive {mount_path} is empty, skipping")
+                        continue
+                    
+                    # Check for control.txt file
+                    control_file_path = os.path.join(mount_path, CONTROL_FILE_NAME)
+                    if os.path.isfile(control_file_path):
+                        log_message(f"Found control file: {control_file_path}")
+                        return mount_path
+                    else:
+                        log_message(f"No control.txt in {mount_path}")
+                        
+                except (OSError, PermissionError) as e:
+                    log_message(f"Cannot access {mount_path}: {str(e)}")
+                    continue
+                    
+    except Exception as e:
+        log_message(f"Error scanning for control USB: {str(e)}")
+    
+    log_message("No control USB found")
+    return None
+
+def find_control_usb_with_retry(max_retries=3, retry_delay=1):
+    """Find control USB with simple retry for desktop mounting delays."""
+    log_message(f"Attempting to find control USB (max {max_retries} retries)...")
+    
+    for attempt in range(max_retries):
+        if attempt > 0:
+            log_message(f"Retry {attempt} of {max_retries} for control USB detection...")
+            time.sleep(retry_delay)
+        
+        result = find_control_usb()
+        if result:
+            log_message(f"Control USB found on attempt {attempt + 1}")
+            return result
+    
+    log_message(f"Failed to find control USB after {max_retries} attempts")
+    return None
+
 def usb_is_mounted(mount_path):
-    """Return True if mount_path has content, else False."""
+    """Return True if mount_path is accessible and has content."""
     try:
         if not os.path.exists(mount_path):
+            return False
+        
+        # Check if it's actually mounted
+        if not os.path.ismount(mount_path):
             return False
         
         # Check if we can list the directory and it has content
@@ -62,75 +148,13 @@ def usb_is_mounted(mount_path):
         if has_content:
             log_message(f"USB mounted and accessible: {mount_path} ({len(contents)} items)")
         else:
-            log_message(f"Mount point exists but empty: {mount_path}")
+            log_message(f"USB mounted but empty: {mount_path}")
         
         return has_content
         
     except (OSError, PermissionError) as e:
-        log_message(f"Mount point not accessible: {mount_path} - {str(e)}")
+        log_message(f"USB not accessible: {mount_path} - {str(e)}")
         return False
-
-def find_control_usb():
-    """Find control USB using static bind mount point."""
-    # First check the static bind mount point
-    static_path = "/home/pi/usb/playcard"
-    
-    if os.path.exists(static_path):
-        try:
-            # Check if it has content (meaning a USB is bound to it)
-            contents = os.listdir(static_path)
-            if contents:  # Has files/folders
-                # Additional check: verify the control file exists
-                control_file_path = os.path.join(static_path, CONTROL_FILE_NAME)
-                if os.path.isfile(control_file_path):
-                    log_message(f"Control USB found at static mount with control file: {static_path}")
-                    return static_path
-                else:
-                    log_message(f"Static mount has content but no control file: {static_path}")
-            else:
-                log_message(f"Static control mount point exists but empty: {static_path}")
-        except (OSError, PermissionError) as e:
-            log_message(f"Cannot access static control mount: {static_path} - {str(e)}")
-    
-    # Fallback: Check the configured path (backward compatibility)
-    if usb_is_mounted(CONTROL_USB_MOUNT):
-        control_file_path = os.path.join(CONTROL_USB_MOUNT, CONTROL_FILE_NAME)
-        if os.path.isfile(control_file_path):
-            log_message(f"Control USB found at configured path: {CONTROL_USB_MOUNT}")
-            return CONTROL_USB_MOUNT
-    
-    # Fallback: Look for traditional PLAY_CARD mount points
-    for mount_point in glob.glob("/media/pi/PLAY_CARD*"):
-        if os.path.isdir(mount_point) and os.path.ismount(mount_point):
-            control_file_path = os.path.join(mount_point, CONTROL_FILE_NAME)
-            if os.path.isfile(control_file_path):
-                log_message(f"Control USB found at traditional mount: {mount_point}")
-                return mount_point
-    
-    # Last resort: Look for ANY USB with control.txt
-    for mount_point in glob.glob("/media/pi/*"):
-        if os.path.isdir(mount_point) and os.path.ismount(mount_point):
-            control_file_path = os.path.join(mount_point, CONTROL_FILE_NAME)
-            if os.path.isfile(control_file_path):
-                log_message(f"Control file found on unlabeled USB: {mount_point}")
-                return mount_point
-    
-    log_message("No control USB found")
-    return None
-
-def find_control_usb_with_retry(max_retries=3, retry_delay=1):
-    """Find control USB with simple retry for static mounts."""
-    for attempt in range(max_retries):
-        if attempt > 0:
-            log_message(f"Retrying control USB detection (attempt {attempt + 1}/{max_retries})...")
-            time.sleep(retry_delay)
-        
-        result = find_control_usb()
-        if result:
-            return result
-    
-    log_message(f"Failed to find control USB after {max_retries} attempts")
-    return None
 
 def format_track_name(filename):
     """Decode URL-encoded filename and return its basename without extension."""
