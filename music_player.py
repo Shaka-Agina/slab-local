@@ -237,10 +237,12 @@ class MusicPlayer:
             for root, dirs, files in os.walk(self.music_source):
                 for file in files:
                     if file.lower().endswith(audio_extensions):
-                        # Check if track name matches (case insensitive, partial match)
-                        if track_name.lower() in file.lower():
-                            full_path = os.path.join(root, file)
-                            found_tracks.append(full_path)
+                        # Skip macOS hidden files and system files
+                        if self._is_valid_audio_file(file):
+                            # Check if track name matches (case insensitive, partial match)
+                            if track_name.lower() in file.lower():
+                                full_path = os.path.join(root, file)
+                                found_tracks.append(full_path)
             
             # Sort by exact match first, then partial matches
             def match_quality(track_path):
@@ -278,8 +280,10 @@ class MusicPlayer:
             direct_files = []
             for file in sorted(os.listdir(folder_path)):
                 if file.lower().endswith(audio_extensions):
-                    full_path = os.path.join(folder_path, file)
-                    direct_files.append(full_path)
+                    # Skip macOS hidden files and system files
+                    if self._is_valid_audio_file(file):
+                        full_path = os.path.join(folder_path, file)
+                        direct_files.append(full_path)
             
             if direct_files:
                 # If we found files directly in the folder, use those
@@ -291,8 +295,10 @@ class MusicPlayer:
                 for root, dirs, files in os.walk(folder_path):
                     for file in sorted(files):
                         if file.lower().endswith(audio_extensions):
-                            full_path = os.path.join(root, file)
-                            tracks.append(full_path)
+                            # Skip macOS hidden files and system files
+                            if self._is_valid_audio_file(file):
+                                full_path = os.path.join(root, file)
+                                tracks.append(full_path)
                 
                 log_message(f"Loaded {len(tracks)} tracks recursively from {folder_path}")
             
@@ -300,6 +306,24 @@ class MusicPlayer:
             log_message(f"Error loading tracks from {folder_path}: {str(e)}")
         
         return tracks
+    
+    def _is_valid_audio_file(self, filename):
+        """Check if file is a valid audio file (not system/hidden file)"""
+        # Skip macOS resource fork files
+        if filename.startswith('._'):
+            return False
+        
+        # Skip hidden files
+        if filename.startswith('.'):
+            return False
+        
+        # Skip common system files
+        system_files = ['Thumbs.db', 'desktop.ini', '.DS_Store']
+        if filename in system_files:
+            return False
+        
+        # Skip very small files (likely corrupted)
+        return True
     
     def _play_track_at_index(self, index):
         """Play track at specific index in current album"""

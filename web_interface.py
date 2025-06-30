@@ -9,6 +9,7 @@ import base64
 import time
 import json
 import glob
+from urllib.parse import unquote
 from flask import Flask, request, redirect, url_for, jsonify, send_from_directory
 from flask_cors import CORS
 from config import WEB_PORT, repeat_playback, CONTROL_FILE_NAME
