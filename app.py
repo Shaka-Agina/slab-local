@@ -1,201 +1,175 @@
 #!/usr/bin/env python3
 """
 USB Music Player - Native Deployment Entry Point
-Main application that starts both the web interface and USB monitoring
+Event-driven USB detection with proper permission handling
 """
 
 import os
 import sys
+import signal
 import time
 import threading
-import glob
-import signal
 from pathlib import Path
 
-# Add current directory to Python path
+# Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import CONTROL_FILE_NAME
-from player import player
-from web_interface import start_flask_app
-from utils import log_message, find_album_folder, find_control_usb_with_retry, find_music_usb
+from utils import log_message
+from config import WEB_PORT, DEFAULT_VOLUME
+from usb_monitor import USBMonitor
+from player import MusicPlayer
+from web_interface import create_app
 
-class MusicPlayerApp:
+class USBMusicPlayerApp:
     def __init__(self):
-        self.running = True
-        self.previously_mounted = False
-        self.last_control_path = None
-        
-    def signal_handler(self, signum, frame):
-        """Handle shutdown signals gracefully"""
-        log_message(f"Received signal {signum}, shutting down...")
+        self.usb_monitor = None
+        self.music_player = None
+        self.web_app = None
+        self.web_thread = None
         self.running = False
-        player.stop()
-        sys.exit(0)
         
-    def monitor_usb_loop(self):
-        """
-        Monitor USB drives for control files and music playback
-        Optimized for native deployment with proper permissions
-        """
-        consecutive_failures = 0
-        log_message("Starting native USB monitoring loop...")
-        
-        while self.running:
-            try:
-                # Check for control USB - native detection is more reliable
-                control_usb = find_control_usb_with_retry(max_retries=1, retry_delay=0.5)
-                
-                if control_usb:
-                    # Reset failure counter on success
-                    consecutive_failures = 0
-                    
-                    # Check if this is a new mount
-                    is_new_mount = not self.previously_mounted or (self.last_control_path != control_usb)
-                    
-                    if is_new_mount:
-                        log_message(f"Control USB {'remounted' if self.previously_mounted else 'mounted'} at {control_usb}")
-                        if self.previously_mounted and self.last_control_path != control_usb:
-                            log_message(f"USB path changed from {self.last_control_path} to {control_usb}")
-                        
-                        self.previously_mounted = True
-                        self.last_control_path = control_usb
-                        player.stop()
-                        
-                        self.process_control_file(control_usb)
-                    
-                    # Periodic status check (less frequent logging)
-                    elif int(time.time()) % 60 == 0:  # Every minute when mounted
-                        log_message(f"Control USB active at {control_usb}")
-                        
-                else:
-                    # No control USB found
-                    consecutive_failures += 1
-                    
-                    if self.previously_mounted:
-                        log_message(f"Control USB unmounted (was at {self.last_control_path}). Stopping playback.")
-                        self.previously_mounted = False
-                        self.last_control_path = None
-                        player.stop()
-                    elif int(time.time()) % 60 == 0:  # Log every minute when not mounted
-                        if consecutive_failures < 3:
-                            log_message("Control USB not detected")
-                        elif consecutive_failures == 3:
-                            log_message("Control USB not detected (reducing log frequency)")
-                            
-            except Exception as e:
-                log_message(f"Error in USB monitoring loop: {str(e)}")
-                
-            # Native deployment can use longer intervals for better performance
-            time.sleep(2.0)
-            
-    def process_control_file(self, control_usb):
-        """Process the control file and start appropriate playback"""
-        control_file_path = os.path.join(control_usb, CONTROL_FILE_NAME)
-        
-        if os.path.isfile(control_file_path):
-            try:
-                with open(control_file_path, "r") as f:
-                    request_line = f.read().strip()
-                log_message(f"Control file content: '{request_line}'")
-                
-                if request_line.startswith("Album:"):
-                    album_name = request_line.replace("Album:", "").strip()
-                    log_message(f"Album requested: {album_name}")
-                    target_folder = find_album_folder(album_name)
-                    if target_folder:
-                        player.play_album(target_folder)
-                    else:
-                        log_message(f"No matching album folder named '{album_name}' found.")
-                        
-                elif request_line.startswith("Track:"):
-                    track_name = request_line.replace("Track:", "").strip()
-                    log_message(f"Track requested: {track_name}")
-                    
-                    music_usb_path = find_music_usb()
-                    if music_usb_path:
-                        escaped_track = glob.escape(track_name)
-                        matching_tracks = glob.glob(
-                            os.path.join(music_usb_path, "**", f"{escaped_track}*"),
-                            recursive=True
-                        )
-                        if matching_tracks:
-                            player.play_single(matching_tracks[0])
-                        else:
-                            log_message(f"No matching track named '{track_name}' found in {music_usb_path}.")
-                    else:
-                        log_message("No music USB drive found for track search.")
-                        
-                else:
-                    # For simple control files, just start playing
-                    log_message("Simple control file detected - starting music playback")
-                    music_usb_path = find_music_usb()
-                    if music_usb_path:
-                        # Find first album or just play all music
-                        music_path = Path(music_usb_path)
-                        album_dirs = [d for d in music_path.iterdir() if d.is_dir()]
-                        if album_dirs:
-                            player.play_album(str(album_dirs[0]))
-                        else:
-                            # Play all music files in the root
-                            music_files = []
-                            for ext in ['*.mp3', '*.wav', '*.flac', '*.m4a']:
-                                music_files.extend(music_path.glob(ext))
-                            if music_files:
-                                player.play_single(str(music_files[0]))
-                            else:
-                                log_message("No music files found on USB drive")
-                    else:
-                        log_message("No music USB drive found")
-                        
-            except Exception as e:
-                log_message(f"Error reading control file {control_file_path}: {str(e)}")
-        else:
-            log_message(f"Control file not found: {control_file_path}")
-            # Still try to play music if control USB is inserted
-            music_usb_path = find_music_usb()
-            if music_usb_path:
-                log_message("No control file, but music USB detected - starting playback")
-                music_path = Path(music_usb_path)
-                album_dirs = [d for d in music_path.iterdir() if d.is_dir()]
-                if album_dirs:
-                    player.play_album(str(album_dirs[0]))
-
-    def run(self):
-        """Main application entry point"""
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGTERM, self.signal_handler)
-        
-        log_message("Starting USB Music Player (Native Deployment)")
-        log_message(f"Working directory: {os.getcwd()}")
-        log_message(f"Python path: {sys.executable}")
-        
-        # Start Flask web interface in a separate thread
-        log_message("Starting web interface...")
-        flask_thread = threading.Thread(target=start_flask_app, daemon=True)
-        flask_thread.start()
-        
-        # Give Flask a moment to start
-        time.sleep(2)
-        log_message("Web interface started")
-        
-        # Start the main USB monitoring loop
+    def start(self):
+        """Start the USB music player application"""
         try:
-            self.monitor_usb_loop()
+            log_message("🎵 Starting USB Music Player (Native Deployment)")
+            log_message("=" * 50)
+            
+            # Initialize music player
+            self.music_player = MusicPlayer()
+            
+            # Initialize USB monitor with callbacks
+            self.usb_monitor = USBMonitor(
+                on_music_usb_change=self._on_music_usb_change,
+                on_control_usb_change=self._on_control_usb_change
+            )
+            
+            # Start USB monitoring (event-driven)
+            self.usb_monitor.start_monitoring()
+            
+            # Create and start web interface
+            self.web_app = create_app(self.music_player, self.usb_monitor)
+            self.web_thread = threading.Thread(
+                target=self._run_web_server,
+                daemon=True
+            )
+            self.web_thread.start()
+            
+            # Set up signal handlers for graceful shutdown
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            
+            self.running = True
+            log_message(f"✅ USB Music Player started successfully")
+            log_message(f"🌐 Web interface: http://localhost:{WEB_PORT}")
+            log_message("🔌 Insert USB drives labeled 'MUSIC' and 'PLAY_CARD'")
+            log_message("📝 Create control files on PLAY_CARD drive to control playback")
+            log_message("⚡ Using event-driven USB detection (no polling!)")
+            log_message("🛑 Press Ctrl+C to stop")
+            
+            # Main loop - just wait for signals
+            while self.running:
+                time.sleep(1)
+                
         except KeyboardInterrupt:
-            log_message("Keyboard interrupt received")
+            log_message("Received keyboard interrupt")
         except Exception as e:
-            log_message(f"Application error: {str(e)}")
+            log_message(f"Error starting application: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
-            log_message("Shutting down...")
-            player.stop()
-            log_message("Application stopped")
+            self.stop()
+            
+    def stop(self):
+        """Stop the application gracefully"""
+        if not self.running:
+            return
+            
+        log_message("🛑 Stopping USB Music Player...")
+        self.running = False
+        
+        # Stop USB monitoring
+        if self.usb_monitor:
+            self.usb_monitor.stop_monitoring()
+            
+        # Stop music player
+        if self.music_player:
+            self.music_player.stop()
+            
+        # Web server will stop when main thread exits (daemon thread)
+        
+        log_message("✅ USB Music Player stopped")
+        
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        log_message(f"Received signal {signum}")
+        self.running = False
+        
+    def _run_web_server(self):
+        """Run the web server in a separate thread"""
+        try:
+            log_message(f"Starting web server on port {WEB_PORT}")
+            self.web_app.run(
+                host='0.0.0.0',
+                port=WEB_PORT,
+                debug=False,
+                use_reloader=False,
+                threaded=True
+            )
+        except Exception as e:
+            log_message(f"Error running web server: {e}")
+            
+    def _on_music_usb_change(self, new_music_usb, old_music_usb):
+        """Handle music USB mount/unmount events"""
+        if new_music_usb:
+            log_message(f"🎵 Music USB available: {new_music_usb}")
+            if self.music_player:
+                self.music_player.set_music_source(new_music_usb)
+        else:
+            log_message("🎵 Music USB unavailable")
+            if self.music_player:
+                self.music_player.stop()
+                self.music_player.set_music_source(None)
+                
+    def _on_control_usb_change(self, new_control_usb, old_control_usb):
+        """Handle control USB mount/unmount events"""
+        if new_control_usb:
+            log_message(f"🎛️ Control USB available: {new_control_usb}")
+            if self.music_player:
+                self.music_player.set_control_source(new_control_usb)
+        else:
+            log_message("🎛️ Control USB unavailable")
+            if self.music_player:
+                self.music_player.set_control_source(None)
 
 def main():
-    """Entry point for the application"""
-    app = MusicPlayerApp()
-    app.run()
+    """Main entry point"""
+    # Check if we're running as root (not recommended)
+    if os.geteuid() == 0:
+        log_message("⚠️  Running as root - this is not recommended for security")
+        log_message("💡 Consider running as a regular user in the 'plugdev' group")
+        
+    # Check required groups
+    try:
+        import subprocess
+        result = subprocess.run(['groups'], capture_output=True, text=True)
+        groups = result.stdout.strip()
+        
+        if 'plugdev' not in groups:
+            log_message("⚠️  User not in 'plugdev' group - USB access may fail")
+            log_message("💡 Run: sudo usermod -aG plugdev $USER")
+            log_message("💡 Then logout and login again")
+            
+        if 'audio' not in groups:
+            log_message("⚠️  User not in 'audio' group - audio may not work")
+            log_message("💡 Run: sudo usermod -aG audio $USER")
+            log_message("💡 Then logout and login again")
+            
+    except Exception as e:
+        log_message(f"Could not check user groups: {e}")
+    
+    # Create and start the application
+    app = USBMusicPlayerApp()
+    app.start()
 
 if __name__ == "__main__":
     main() 

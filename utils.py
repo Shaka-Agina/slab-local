@@ -161,10 +161,11 @@ def format_track_name(filename):
     base_without_ext, _ = os.path.splitext(base)
     return base_without_ext
 
-def find_album_folder(album_name):
+def find_album_folder(album_name, music_usb_path=None):
     """Recursively search for a folder whose name starts with album_name in the music USB."""
-    # Get the actual music USB mount point
-    music_usb_path = find_music_usb()
+    # Use provided path or try to find music USB
+    if not music_usb_path:
+        music_usb_path = find_music_usb()
     
     if not music_usb_path:
         log_message("No music USB drive found")

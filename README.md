@@ -1,287 +1,260 @@
 # 🎵 USB Music Player for Raspberry Pi
 
-A modern web-based music player that automatically detects USB drives and provides both web interface and physical control via USB files.
+A modern, event-driven music player with automatic USB detection and web interface control.
 
-## ✨ Features
+## ✨ New Event-Driven Architecture
 
-- **🔌 Automatic USB Detection** - Plug and play with MUSIC and PLAY_CARD labeled drives
-- **🌐 Web Interface** - Modern, responsive control panel
-- **📁 File-based Control** - Create simple text files on USB to control playback
-- **🎛️ Volume Control** - Web and file-based volume adjustment
-- **🔄 Playlist Management** - Automatic playlist generation from USB music
-- **📱 Mobile Friendly** - Works great on phones and tablets
-- **🚀 Native Performance** - Direct hardware access, no container overhead
-- **🔧 Easy Development** - Simple Python Flask application
+**Major improvements in this version:**
+- **⚡ Event-Driven USB Detection** - Uses `udevadm` events instead of polling (instant response!)
+- **🎧 VLC Audio Engine** - Professional audio with full codec support
+- **🔄 Real-Time Control** - Instant file-based command processing
+- **🏗️ Clean Architecture** - Modular design with proper separation of concerns
+- **📈 Better Performance** - Zero CPU usage when idle, instant USB detection
 
-## 🚀 Quick Install (Recommended)
+## 🚀 Quick Install
 
-**One-command installation with native deployment:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/yourusername/slab-local/main/install.sh | bash
-```
-
-**Or manual installation:**
+**One-command installation:**
 
 ```bash
 git clone https://github.com/yourusername/slab-local.git
 cd slab-local
-chmod +x install.sh
-./install.sh
-```
-
-The installer will ask you to choose between:
-1. **Native (Recommended)** - Best performance, no USB permission issues
-2. **Docker** - Containerized deployment (legacy option)
-
-## 🔄 Migration from Docker
-
-If you're already using the Docker version and want to migrate to native:
-
-```bash
-chmod +x migrate-to-native.sh
-./migrate-to-native.sh
+chmod +x deploy-native-pi.sh
+./deploy-native-pi.sh
 ```
 
 This will:
-- ✅ Backup your current configuration
-- ✅ Stop Docker services
-- ✅ Set up native deployment
-- ✅ Preserve all your settings
-- ✅ Create rollback option
-
-## 🏗️ Architecture
-
-### Native Deployment (Recommended)
-```
-USB Drive → Desktop Auto-mount → Direct Access by Python App
-/media/pi/MUSIC* → Direct Access (pi user permissions via groups)
-```
-
-**Benefits:**
-- ✅ No USB permission issues (pi user in plugdev group)
-- ✅ Better audio performance  
-- ✅ Faster startup and operation
-- ✅ Easier debugging and development
-- ✅ Direct hardware access
-- ✅ Simplified architecture
-
-### Docker Deployment (Legacy)
-```
-USB Drive → Desktop Auto-mount → Docker Volume → Container App
-/media/pi/MUSIC* → Docker mount → Permission complexity
-```
-
-## 📦 System Requirements
-
-- Raspberry Pi (3B+ or newer recommended)
-- Raspberry Pi OS (Bullseye or newer)
-- USB ports for music and control drives
-- Audio output (3.5mm jack, HDMI, or USB)
+- ✅ Install VLC and all dependencies
+- ✅ Set up user permissions (plugdev, audio groups)
+- ✅ Configure event-driven USB monitoring
+- ✅ Test all components
+- ✅ Optionally create systemd service
 
 ## 🔌 USB Setup
 
-### Label Your USB Drives
-- **Music USB**: Label as `MUSIC` (contains your music files)
-- **Control USB**: Label as `PLAY_CARD` (contains control files)
+### Music USB Drive
+- **Label**: `MUSIC` (or `MUSIC1`, `MUSIC_DRIVE`, etc.)
+- **Content**: Your music files in any format (MP3, FLAC, WAV, M4A, AAC, OGG)
+- **Structure**: Any folder organization - albums auto-detected
 
-### Control Files
-Create these files on your `PLAY_CARD` USB drive to control playback:
+### Control USB Drive  
+- **Label**: `PLAY_CARD` (or `PLAY_CARD1`, etc.)
+- **Content**: Create a `control.txt` file with commands
 
-| File Name | Function |
-|-----------|----------|
-| `playMusic.txt` | Start/stop playback |
-| `nextTrack.txt` | Skip to next track |
-| `prevTrack.txt` | Go to previous track |
-| `volumeUp.txt` | Increase volume |
-| `volumeDown.txt` | Decrease volume |
+### Control Commands
 
-**File contents don't matter** - the player just checks if the file exists.
+Create `/media/pi/PLAY_CARD/control.txt` with one of these commands:
+
+```
+Album: Pink Floyd - Dark Side of the Moon
+Track: Bohemian Rhapsody
+play
+pause
+stop
+next
+previous
+volume: 75
+```
+
+**How it works:**
+- The system monitors the control file for changes
+- When you edit and save the file, the command executes immediately
+- No need to create/delete files - just edit the content
+
+## 🏗️ Architecture Overview
+
+### Event-Driven Design
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   USB Monitor   │───▶│   Music Player   │───▶│  Web Interface  │
+│ (Event-driven)  │    │  (VLC-based)     │    │    (Flask)      │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│ udev Events     │    │ Control File     │    │ REST API        │
+│ USB Detection   │    │ Monitoring       │    │ Web UI          │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+```
+
+### Key Components
+
+1. **USBMonitor** - Event-driven USB detection using udev
+2. **MusicPlayer** - VLC-based audio engine with control file monitoring  
+3. **WebInterface** - Flask web server with REST API
+4. **Main Application** - Orchestrates all components with proper cleanup
 
 ## 🌐 Web Interface
 
-Access your music player at:
-- **http://your-pi-ip:5000**
-- **http://raspberrypi.local:5000** (if mDNS is working)
+Access at: **http://your-pi-ip:5000**
 
-### Web Features
-- 🎵 Play/pause/stop controls
-- ⏭️ Next/previous track
-- 🔊 Volume slider
-- 📋 Current playlist view
-- 📁 Browse music library
-- 📊 Real-time status updates
+### Features
+- 🎵 **Real-time status** - Live updates without page refresh
+- 🎨 **Album art display** - Extracted from metadata or folder images
+- 🎛️ **Playback controls** - Play/pause/skip (requires control USB)
+- 🔊 **Volume control** - Real-time volume adjustment
+- 📊 **USB monitoring** - Live status of connected drives
+- 🐛 **Debug info** - Troubleshooting endpoint at `/debug/usb`
 
-## 🔧 Service Management
+### API Endpoints
 
-### Native Deployment
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/player_state` | GET | Current player status |
+| `/api/toggle_play_pause` | POST | Play/pause control |
+| `/api/next_track` | POST | Skip to next track |
+| `/api/prev_track` | POST | Skip to previous track |
+| `/api/set_volume/<int>` | POST | Set volume (0-100) |
+| `/health` | GET | Health check |
+| `/debug/usb` | GET | USB debug information |
+
+## 🔧 Usage
+
+### Starting the Player
 ```bash
-# Check status
-sudo systemctl status usb-music-player.service
+# Manual start
+cd /path/to/slab-local
+python3 main.py
 
-# View logs
-sudo journalctl -u usb-music-player.service -f
-
-# Restart service
-sudo systemctl restart usb-music-player.service
-
-# Stop service
-sudo systemctl stop usb-music-player.service
+# Or via systemd service
+sudo systemctl start usb-music-player.service
 ```
 
-### Development Mode
+### Playing Music
+1. **Insert USB drives** - Music and control drives auto-detected
+2. **Create control file** - Edit `control.txt` on PLAY_CARD drive
+3. **Web interface** - Access at http://your-pi-ip:5000
+4. **Real-time control** - Changes happen instantly
+
+### Example Workflow
 ```bash
-cd /home/pi/slab-local
-source venv/bin/activate
-export FLASK_ENV=development  # Enables auto-reload
-python app.py
-```
+# 1. Insert MUSIC USB with your music
+# 2. Insert PLAY_CARD USB  
+# 3. Create control file:
+echo "Album: Your Favorite Album" > /media/pi/PLAY_CARD/control.txt
 
-### Docker Deployment (if using legacy mode)
-```bash
-# Check status
-docker-compose ps
-
-# View logs  
-docker-compose logs -f
-
-# Restart
-docker-compose restart
-
-# Stop
-docker-compose down
+# Music starts playing immediately!
+# Edit the file to change commands:
+echo "next" > /media/pi/PLAY_CARD/control.txt
+echo "volume: 50" > /media/pi/PLAY_CARD/control.txt
 ```
 
 ## 🛠️ Troubleshooting
 
-### USB Drives Not Detected
+### USB Detection Issues
 ```bash
-# Check if drives are mounted by desktop environment
+# Test USB detection
+python3 test-native-direct.py
+
+# Monitor USB events in real-time
+udevadm monitor --property --subsystem-match=block
+
+# Check mounted drives
 ls -la /media/pi/
 
-# Check USB permissions
-groups $USER  # Should include 'plugdev' group
-
-# Check mount status
-mount | grep /media/pi
-
-# Monitor USB events
-sudo udevadm monitor --property --subsystem-match=block
+# Check user permissions
+groups  # Should include 'plugdev' and 'audio'
 ```
 
 ### Audio Issues
 ```bash
+# Test VLC
+vlc --version
+python3 -c "import vlc; print('VLC OK')"
+
 # Test audio output
 aplay /usr/share/sounds/alsa/Front_Left.wav
 
-# Check PulseAudio (native deployment)
-pulseaudio --check -v
-systemctl --user status pulseaudio
-
-# List audio devices
+# Check audio devices
+aplay -l
 pactl list short sinks
 ```
 
-### Permission Issues
+### Service Issues
 ```bash
-# Add user to plugdev group (if not already)
-sudo usermod -aG plugdev $USER
+# Check service status
+sudo systemctl status usb-music-player.service
 
-# Check current groups
-groups $USER
+# View real-time logs
+journalctl -u usb-music-player.service -f
 
-# Logout and login again to apply group changes
+# Debug mode (manual start)
+cd /path/to/slab-local
+python3 main.py
 ```
 
-### Service Won't Start
+### Performance Monitoring
 ```bash
-# Check detailed logs
-sudo journalctl -u usb-music-player.service -f --since "5 minutes ago"
+# Check CPU usage (should be near 0% when idle)
+top -p $(pgrep -f main.py)
 
-# Check Python environment
-cd /home/pi/slab-local
-source venv/bin/activate
-python -c "import flask, pygame, mutagen; print('All imports OK')"
-
-# Manual start for debugging
-python app.py
+# Monitor USB events
+# Old: Continuous polling every 2-3 seconds
+# New: Event-driven, zero CPU when idle
 ```
 
-## 📁 Directory Structure
+## 📊 Performance Comparison
 
-```
-/media/pi/MUSIC           # Desktop auto-mount → Direct access by app
-/media/pi/PLAY_CARD       # Desktop auto-mount → Direct access by app
-```
+### Before (Polling-Based)
+- ❌ **Continuous CPU usage** from polling loops
+- ❌ **2-3 second detection delay**
+- ❌ **Resource waste** checking unchanged state
+- ❌ **Complex USB permission handling**
 
-**Native deployment is much simpler!** No bind mounts or permission complexity.
+### After (Event-Driven)
+- ✅ **Zero CPU usage** when idle
+- ✅ **Instant USB detection** via udev events
+- ✅ **Efficient resource usage** - only react to changes
+- ✅ **Clean permission handling** via user groups
 
-## ⚙️ Configuration
+## 🔄 Migration from Old Version
 
-### Environment Variables
-Edit `/etc/systemd/system/usb-music-player.service`:
-
-```ini
-Environment=CONTROL_FILE_NAME=playMusic.txt
-Environment=WEB_PORT=5000
-Environment=DEFAULT_VOLUME=70
-Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
-```
-
-### Audio Configuration
-```bash
-# Select audio output device
-sudo raspi-config
-# Advanced Options → Audio → Choose output
-
-# Or manually set audio device
-export PULSE_SERVER=unix:/run/user/1000/pulse/native
-```
-
-## 🚀 Performance Comparison
-
-| Feature | Native | Docker |
-|---------|--------|---------|
-| **Startup Time** | ~3 seconds | ~15 seconds |
-| **USB Detection** | Instant | Can be problematic |
-| **Audio Latency** | Minimal | Higher |
-| **Memory Usage** | ~50MB | ~200MB |
-| **Development** | Direct editing | Rebuild required |
-| **Debugging** | Native tools | Container tools |
-| **Permission Issues** | None | Common |
-
-## 🔄 Rollback to Docker
-
-If you need to rollback from native to Docker:
+If upgrading from the polling-based version:
 
 ```bash
-# Stop native services
-sudo systemctl stop usb-music-player.service
-sudo systemctl disable usb-music-player.service
+# Backup current setup
+cp -r /path/to/old-version /path/to/backup
 
-# Use backup from migration
-cd backup-YYYYMMDD-HHMMSS/  # Your backup directory
-docker-compose up -d
+# Stop old services
+sudo systemctl stop old-usb-music-player.service
+
+# Deploy new version
+git pull origin main
+./deploy-native-pi.sh
+
+# Test new version
+python3 test-native-direct.py
 ```
+
+## 📖 Documentation
+
+- **[NATIVE_DEPLOYMENT.md](NATIVE_DEPLOYMENT.md)** - Complete deployment guide
+- **[architecture-comparison.md](architecture-comparison.md)** - Technical comparison
+- **Web Debug**: http://your-pi-ip:5000/debug/usb - Live system status
+
+## 🎯 System Requirements
+
+- **Raspberry Pi** 3B+ or newer (tested on Pi 4)
+- **Raspberry Pi OS** Bullseye or newer with desktop
+- **USB ports** for music and control drives
+- **Audio output** (3.5mm, HDMI, or USB audio)
+- **Python 3.7+** with pip
+- **VLC media player** (installed by deployment script)
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes
-4. Test with both native and Docker deployments
-5. Submit a pull request
+This project uses a clean, modular architecture that's easy to extend:
 
-## 📝 License
+- **USB detection** - Modify `usb_monitor.py`
+- **Audio playback** - Modify `music_player.py`  
+- **Web interface** - Modify `web_interface.py`
+- **Control logic** - Modify `main.py`
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Each component is independent and can be tested separately.
 
-## 🆘 Support
+## 📜 License
 
-- **GitHub Issues**: Report bugs and request features
-- **Discussions**: Ask questions and share ideas
-- **Wiki**: Detailed setup guides and tutorials
+MIT License - see LICENSE file for details.
 
 ---
 
-**Made with ❤️ for the Raspberry Pi community**
+**🎵 Enjoy your music with zero-latency USB detection and professional audio quality! 🎵**

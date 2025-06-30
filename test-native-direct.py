@@ -1,12 +1,60 @@
 #!/usr/bin/env python3
 """
-Test script for native USB access (no bind mounts)
-This verifies that we can access USB drives directly at /media/pi/
+Test script for native USB access and event-driven monitoring
+This verifies that we can access USB drives directly and use event-driven detection
 """
 
 import os
 import sys
+import time
+import threading
 from utils import find_music_usb, find_control_usb, log_message
+from usb_monitor import USBMonitor
+
+def test_event_driven_monitoring():
+    """Test the new event-driven USB monitoring"""
+    print("\n5. Testing Event-Driven USB Monitoring:")
+    
+    events_received = []
+    
+    def on_music_change(new_path, old_path):
+        events_received.append(f"Music USB: {old_path} → {new_path}")
+        print(f"   🎵 Music USB event: {old_path} → {new_path}")
+        
+    def on_control_change(new_path, old_path):
+        events_received.append(f"Control USB: {old_path} → {new_path}")
+        print(f"   🎛️ Control USB event: {old_path} → {new_path}")
+    
+    # Create USB monitor
+    monitor = USBMonitor(
+        on_music_usb_change=on_music_change,
+        on_control_usb_change=on_control_change
+    )
+    
+    try:
+        print("   Starting event-driven monitoring for 5 seconds...")
+        monitor.start_monitoring()
+        
+        # Let it run for a few seconds
+        time.sleep(5)
+        
+        # Check status
+        status = monitor.get_current_usb_status()
+        print(f"   ✅ Monitor status: {status}")
+        
+        if events_received:
+            print(f"   ✅ Received {len(events_received)} USB events:")
+            for event in events_received:
+                print(f"      • {event}")
+        else:
+            print("   ℹ️  No USB events during test (drives may already be mounted)")
+            
+        print("   ✅ Event-driven monitoring test completed")
+        
+    except Exception as e:
+        print(f"   ❌ Error in event-driven monitoring: {e}")
+    finally:
+        monitor.stop_monitoring()
 
 def test_native_usb_access():
     """Test direct USB access for native deployment"""
@@ -125,12 +173,16 @@ def test_native_usb_access():
         print("❌ /media/pi directory does not exist")
         print("💡 This is unusual - are you on Raspberry Pi OS with desktop?")
     
+    # Test event-driven monitoring
+    test_event_driven_monitoring()
+    
     print("\n" + "=" * 60)
     print("🎵 Native USB Test Complete!")
     print("\n💡 Tips:")
     print("• Insert USB drives labeled 'MUSIC' and 'PLAY_CARD'")
     print("• Make sure you're in the 'plugdev' group")
     print("• Desktop environment should auto-mount USB drives")
+    print("• Event-driven monitoring eliminates polling overhead")
     print("• No bind mounts needed - direct access to /media/pi/")
 
 if __name__ == "__main__":
