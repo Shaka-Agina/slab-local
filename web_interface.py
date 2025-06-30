@@ -35,43 +35,47 @@ def create_app(music_player, usb_monitor):
     app.usb_monitor = usb_monitor
 
     def extract_album_art(file_path):
-        """Extract album art from audio file metadata or look for cover image in the album folder"""
-        if not file_path:
-            return None
-        
-        # URL decode the file path to handle spaces and special characters
+        """Extract album art from audio file"""
         try:
-            from urllib.parse import unquote
+            if not file_path or not os.path.exists(file_path):
+                return None
+            
+            # URL decode the file path if it's URL encoded
+            if file_path.startswith('file://'):
+                file_path = file_path[7:]
+                
             decoded_file_path = unquote(file_path)
             
-            # Check if the decoded file exists
-            if not os.path.exists(decoded_file_path):
-                log_message(f"File not found: {decoded_file_path}")
-                # Try to get just the album directory
-                album_dir = os.path.dirname(decoded_file_path)
-                if not os.path.exists(album_dir):
-                    log_message(f"Album directory not found: {album_dir}")
-                    return None
-            else:
-                # First, try to extract from metadata if mutagen is available
-                if METADATA_SUPPORT:
-                    try:
-                        if decoded_file_path.lower().endswith('.mp3'):
+            if os.path.exists(decoded_file_path):
+                try:
+                    if decoded_file_path.lower().endswith('.mp3'):
+                        # Safer MP3 handling with better error catching
+                        try:
                             audio = MP3(decoded_file_path)
                             if audio.tags:
                                 for tag in audio.tags.values():
-                                    if tag.FrameID == 'APIC':  # ID3 picture frame
+                                    if hasattr(tag, 'FrameID') and tag.FrameID == 'APIC':  # ID3 picture frame
                                         image_data = tag.data
                                         return f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
+                        except Exception as mp3_error:
+                            # Log specific MP3 errors but don't crash
+                            if "can't sync to MPEG frame" in str(mp3_error):
+                                log_message(f"MP3 sync error (corrupted file): {os.path.basename(decoded_file_path)}")
+                            else:
+                                log_message(f"MP3 metadata error: {str(mp3_error)}")
                         
-                        elif decoded_file_path.lower().endswith('.flac'):
+                    elif decoded_file_path.lower().endswith('.flac'):
+                        try:
                             audio = FLAC(decoded_file_path)
                             if audio.pictures:
                                 picture = audio.pictures[0]
                                 image_data = picture.data
                                 return f"data:image/jpeg;base64,{base64.b64encode(image_data).decode('utf-8')}"
-                    except Exception as e:
-                        log_message(f"Error extracting metadata: {str(e)}")
+                        except Exception as flac_error:
+                            log_message(f"FLAC metadata error: {str(flac_error)}")
+                            
+                except Exception as e:
+                    log_message(f"Error extracting metadata: {str(e)}")
         
             # If metadata extraction failed or not available, look for cover images in the album folder
             album_dir = os.path.dirname(decoded_file_path)

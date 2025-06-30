@@ -31,6 +31,7 @@ class MusicPlayer:
             self.current_track_path = None
             self.volume = VOLUME_LEVEL
             self.repeat_mode = repeat_playback
+            self.single_track_mode = False  # For single track repeat
             
             # USB sources
             self.music_source = None
@@ -38,6 +39,10 @@ class MusicPlayer:
             
             # Set initial volume
             self.set_volume(self.volume)
+            
+            # Set up VLC event callbacks for automatic track progression
+            events = self.media_player.event_manager()
+            events.event_attach(vlc.EventType.MediaPlayerEndReached, self._on_track_end)
             
             # Control file monitoring
             self.control_file_last_modified = 0
@@ -182,55 +187,114 @@ class MusicPlayer:
         self.current_album_tracks = tracks
         self.current_track_index = 0
         
+        # Disable single track mode for album playback
+        self.single_track_mode = False
+        
         log_message(f"Playing album '{album_name}' with {len(tracks)} tracks")
         
         # Start playing first track
         return self._play_track_at_index(0)
     
     def play_track_by_name(self, track_name):
-        """Play a specific track by name"""
+        """Play a specific track by name - implements single track repeat"""
         if not self.music_source:
             log_message("No music source available")
             return False
         
-        # Search for track in music source
-        escaped_track = glob.escape(track_name)
-        matching_tracks = glob.glob(
-            os.path.join(self.music_source, "**", f"*{escaped_track}*"),
-            recursive=True
-        )
+        # Search for track in music source recursively
+        found_tracks = self._find_tracks_by_name(track_name)
         
-        # Filter for audio files
-        audio_extensions = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')
-        audio_tracks = [t for t in matching_tracks if t.lower().endswith(audio_extensions)]
-        
-        if not audio_tracks:
+        if not found_tracks:
             log_message(f"Track not found: {track_name}")
             return False
         
-        # Play first matching track
-        track_path = audio_tracks[0]
-        self.current_album = os.path.basename(os.path.dirname(track_path))
+        # Play first matching track in single-track repeat mode
+        track_path = found_tracks[0]
+        self.current_album = f"Single Track: {os.path.basename(track_path)}"
         self.current_album_folder = os.path.dirname(track_path)
-        self.current_album_tracks = [track_path]
+        self.current_album_tracks = [track_path]  # Only this track
         self.current_track_index = 0
         self.current_track_path = track_path
         
-        log_message(f"Playing track: {os.path.basename(track_path)}")
-        return self._play_media(track_path)
+        # Enable single track repeat mode for specific track requests
+        self.single_track_mode = True
+        
+        log_message(f"Playing single track on repeat: {os.path.basename(track_path)}")
+        success = self._play_media(track_path)
+        
+        if success:
+            log_message(f"Single track repeat mode enabled for: {track_name}")
+            
+        return success
+    
+    def _find_tracks_by_name(self, track_name):
+        """Find tracks by name with recursive search"""
+        found_tracks = []
+        audio_extensions = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')
+        
+        try:
+            # Use os.walk for proper recursive search
+            for root, dirs, files in os.walk(self.music_source):
+                for file in files:
+                    if file.lower().endswith(audio_extensions):
+                        # Check if track name matches (case insensitive, partial match)
+                        if track_name.lower() in file.lower():
+                            full_path = os.path.join(root, file)
+                            found_tracks.append(full_path)
+            
+            # Sort by exact match first, then partial matches
+            def match_quality(track_path):
+                filename = os.path.basename(track_path).lower()
+                track_lower = track_name.lower()
+                
+                # Exact filename match (highest priority)
+                if filename == track_lower + '.mp3' or filename == track_lower + '.flac':
+                    return 0
+                # Exact match without extension
+                elif os.path.splitext(filename)[0] == track_lower:
+                    return 1
+                # Starts with search term
+                elif filename.startswith(track_lower):
+                    return 2
+                # Contains search term
+                else:
+                    return 3
+            
+            found_tracks.sort(key=match_quality)
+            log_message(f"Found {len(found_tracks)} tracks matching '{track_name}'")
+            
+        except Exception as e:
+            log_message(f"Error searching for tracks: {str(e)}")
+        
+        return found_tracks
     
     def _load_tracks_from_folder(self, folder_path):
-        """Load all music files from a folder"""
+        """Load all music files from a folder recursively"""
         tracks = []
         audio_extensions = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')
         
         try:
+            # First try non-recursive (just the folder itself)
+            direct_files = []
             for file in sorted(os.listdir(folder_path)):
                 if file.lower().endswith(audio_extensions):
                     full_path = os.path.join(folder_path, file)
-                    tracks.append(full_path)
+                    direct_files.append(full_path)
             
-            log_message(f"Loaded {len(tracks)} tracks from {folder_path}")
+            if direct_files:
+                # If we found files directly in the folder, use those
+                tracks = direct_files
+                log_message(f"Loaded {len(tracks)} tracks from {folder_path}")
+            else:
+                # If no direct files, search recursively
+                log_message(f"No direct files found, searching recursively in {folder_path}")
+                for root, dirs, files in os.walk(folder_path):
+                    for file in sorted(files):
+                        if file.lower().endswith(audio_extensions):
+                            full_path = os.path.join(root, file)
+                            tracks.append(full_path)
+                
+                log_message(f"Loaded {len(tracks)} tracks recursively from {folder_path}")
             
         except Exception as e:
             log_message(f"Error loading tracks from {folder_path}: {str(e)}")
@@ -402,9 +466,28 @@ class MusicPlayer:
             'total_tracks': len(self.current_album_tracks),
             'volume': self.volume,
             'repeat_mode': self.repeat_mode,
+            'single_track_mode': self.single_track_mode,
             'position': playback_info['position'],
             'length': playback_info['length'],
             'music_source': self.music_source,
             'control_source': self.control_source,
             'control_monitoring': self.control_monitor_running
-        } 
+        }
+    
+    def _on_track_end(self, event):
+        """Handle end of track event from VLC"""
+        try:
+            if self.single_track_mode:
+                # In single track mode, repeat the same track
+                log_message("Single track ended, repeating...")
+                time.sleep(0.5)  # Small delay to avoid rapid repeats
+                self._play_track_at_index(self.current_track_index)
+            elif self.repeat_mode or self.current_track_index < len(self.current_album_tracks) - 1:
+                # Normal album mode with repeat or more tracks available
+                log_message("Track ended, playing next...")
+                self.next_track()
+            else:
+                log_message("Album completed, stopping playback")
+                
+        except Exception as e:
+            log_message(f"Error handling track end: {str(e)}") 

@@ -181,16 +181,36 @@ class USBMonitor:
             if self._is_usb_accessible_with_permissions(env_path) and os.path.isfile(control_file):
                 return env_path
                 
-        # Check /media/pi for PLAY_CARD drives
+        # Check /media/pi for PLAY_CARD drives with priority order
         media_pi = Path("/media/pi")
         if media_pi.exists():
             try:
+                # First, look for exact match "PLAY_CARD"
+                play_card_exact = media_pi / "PLAY_CARD"
+                if play_card_exact.exists() and play_card_exact.is_dir():
+                    if self._is_usb_accessible_with_permissions(str(play_card_exact)):
+                        control_file = play_card_exact / CONTROL_FILE_NAME
+                        if control_file.is_file():
+                            return str(play_card_exact)
+                
+                # Then look for numbered variants in order (PLAY_CARD1, PLAY_CARD2, etc.)
+                candidates = []
                 for item in media_pi.iterdir():
                     if item.name.startswith("PLAY_CARD") and item.is_dir():
                         if self._is_usb_accessible_with_permissions(str(item)):
                             control_file = item / CONTROL_FILE_NAME
                             if control_file.is_file():
-                                return str(item)
+                                candidates.append(str(item))
+                
+                # Sort candidates to prefer lower numbers
+                candidates.sort(key=lambda x: (len(os.path.basename(x)), os.path.basename(x)))
+                
+                if candidates:
+                    selected = candidates[0]
+                    if len(candidates) > 1:
+                        log_message(f"Multiple PLAY_CARD drives found, using: {os.path.basename(selected)}")
+                    return selected
+                    
             except PermissionError:
                 log_message("Permission denied accessing /media/pi - checking user groups")
                 self._check_user_permissions()
