@@ -53,14 +53,8 @@ def is_usb_accessible(mount_path):
 
 def find_music_usb():
     """
-    Find music USB drive with architecture-aware path selection.
-    
-    Priority order:
-    1. Environment variable override (MUSIC_USB_MOUNT)
-    2. Native bind mount (/home/pi/usb/music)
-    3. Docker shared mount (/shared/usb/music)
-    4. Direct desktop mounts (/media/pi/MUSIC*)
-    5. Legacy mounts (/home/pi/usb, /mnt/usb)
+    Find music USB drive - Native deployment (simplified)
+    Looks directly at desktop auto-mount locations
     """
     
     # Priority 1: Environment variable override
@@ -73,27 +67,7 @@ def find_music_usb():
         else:
             log_message(f"Environment music path not accessible: {env_path} - {reason}")
     
-    # Priority 2: Native bind mount (native deployment)
-    native_paths = ["/home/pi/usb/music"]
-    for path in native_paths:
-        is_accessible, reason = is_usb_accessible(path)
-        if is_accessible:
-            log_message(f"Music USB found via native bind mount: {path}")
-            return path
-        else:
-            log_message(f"Native bind mount not accessible: {path} - {reason}")
-    
-    # Priority 3: Docker shared mount (hybrid deployment)
-    docker_paths = ["/shared/usb/music"]
-    for path in docker_paths:
-        is_accessible, reason = is_usb_accessible(path)
-        if is_accessible:
-            log_message(f"Music USB found via Docker shared mount: {path}")
-            return path
-        else:
-            log_message(f"Docker shared mount not accessible: {path} - {reason}")
-    
-    # Priority 4: Direct desktop mounts
+    # Priority 2: Direct desktop mounts (primary for native deployment)
     if os.path.exists("/media/pi"):
         try:
             media_items = os.listdir("/media/pi")
@@ -102,36 +76,20 @@ def find_music_usb():
                     mount_path = f"/media/pi/{item}"
                     is_accessible, reason = is_usb_accessible(mount_path)
                     if is_accessible:
-                        log_message(f"Music USB found via direct mount: {mount_path}")
+                        log_message(f"Music USB found at: {mount_path}")
                         return mount_path
                     else:
-                        log_message(f"Direct mount not accessible: {mount_path} - {reason}")
+                        log_message(f"Music USB not accessible: {mount_path} - {reason}")
         except Exception as e:
             log_message(f"Error scanning /media/pi: {e}")
     
-    # Priority 5: Legacy mounts
-    legacy_paths = ["/home/pi/usb", "/mnt/usb"]
-    for path in legacy_paths:
-        is_accessible, reason = is_usb_accessible(path)
-        if is_accessible:
-            log_message(f"Music USB found via legacy mount: {path}")
-            return path
-        else:
-            log_message(f"Legacy mount not accessible: {path} - {reason}")
-    
-    log_message("No accessible music USB drive found in any location")
+    log_message("No accessible music USB drive found")
     return None
 
 def find_control_usb():
     """
-    Find control USB drive with architecture-aware path selection.
-    
-    Priority order:
-    1. Environment variable override (CONTROL_USB_MOUNT)
-    2. Native bind mount (/home/pi/usb/playcard)
-    3. Docker shared mount (/shared/usb/playcard)
-    4. Direct desktop mounts (/media/pi/PLAY_CARD*)
-    5. Same as music USB (if control file exists there)
+    Find control USB drive - Native deployment (simplified)
+    Looks directly at desktop auto-mount locations
     """
     
     # Priority 1: Environment variable override
@@ -145,29 +103,7 @@ def find_control_usb():
         else:
             log_message(f"Environment control path not accessible or missing control file: {env_path}")
     
-    # Priority 2: Native bind mount (native deployment)
-    native_paths = ["/home/pi/usb/playcard"]
-    for path in native_paths:
-        is_accessible, reason = is_usb_accessible(path)
-        control_file = os.path.join(path, CONTROL_FILE_NAME)
-        if is_accessible and os.path.isfile(control_file):
-            log_message(f"Control USB found via native bind mount: {path}")
-            return path
-        else:
-            log_message(f"Native control bind mount issue: {path} - {reason if not is_accessible else 'no control file'}")
-    
-    # Priority 3: Docker shared mount (hybrid deployment)
-    docker_paths = ["/shared/usb/playcard"]
-    for path in docker_paths:
-        is_accessible, reason = is_usb_accessible(path)
-        control_file = os.path.join(path, CONTROL_FILE_NAME)
-        if is_accessible and os.path.isfile(control_file):
-            log_message(f"Control USB found via Docker shared mount: {path}")
-            return path
-        else:
-            log_message(f"Docker control shared mount issue: {path} - {reason if not is_accessible else 'no control file'}")
-    
-    # Priority 4: Direct desktop mounts
+    # Priority 2: Direct desktop mounts (primary for native deployment)
     if os.path.exists("/media/pi"):
         try:
             media_items = os.listdir("/media/pi")
@@ -177,14 +113,14 @@ def find_control_usb():
                     is_accessible, reason = is_usb_accessible(mount_path)
                     control_file = os.path.join(mount_path, CONTROL_FILE_NAME)
                     if is_accessible and os.path.isfile(control_file):
-                        log_message(f"Control USB found via direct mount: {mount_path}")
+                        log_message(f"Control USB found at: {mount_path}")
                         return mount_path
                     else:
-                        log_message(f"Direct control mount issue: {mount_path} - {reason if not is_accessible else 'no control file'}")
+                        log_message(f"Control USB issue: {mount_path} - {reason if not is_accessible else 'no control file'}")
         except Exception as e:
             log_message(f"Error scanning /media/pi for control USB: {e}")
     
-    # Priority 5: Check if control file is on music USB
+    # Priority 3: Check if control file is on music USB (fallback)
     music_usb = find_music_usb()
     if music_usb:
         control_file = os.path.join(music_usb, CONTROL_FILE_NAME)
@@ -192,7 +128,7 @@ def find_control_usb():
             log_message(f"Control file found on music USB: {music_usb}")
             return music_usb
     
-    log_message("No accessible control USB drive found in any location")
+    log_message("No accessible control USB drive found")
     return None
 
 def find_control_usb_with_retry(max_retries=3, retry_delay=2):

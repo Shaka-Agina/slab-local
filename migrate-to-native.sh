@@ -144,114 +144,23 @@ print_status "✅ Python environment ready"
 
 print_step "5/6 - Configuring Native Services"
 
-print_status "Setting up USB bind mount service..."
+print_status "Native deployment uses direct USB access - no bind mounts needed"
+print_status "Adding user to plugdev group for USB access permissions..."
 
-# Create USB directories
-mkdir -p /home/pi/usb
-chown -R pi:pi /home/pi/usb
+# Add user to plugdev group for USB access  
+sudo usermod -aG plugdev $USER
 
-# Create bind mount monitoring service (same as in install.sh)
-sudo tee /usr/local/bin/usb-bind-mount-monitor.sh > /dev/null << 'EOL'
-#!/bin/bash
-# Monitor and create bind mounts for USB drives with proper permissions
-
-mkdir -p /home/pi/usb
-chown -R pi:pi /home/pi/usb
-
-while true; do
-    # Handle MUSIC USB drives
-    for music_mount in /media/pi/MUSIC*; do
-        if mountpoint -q "$music_mount" 2>/dev/null; then
-            bind_target="/home/pi/usb/music"
-            if ! mountpoint -q "$bind_target" 2>/dev/null; then
-                mkdir -p "$bind_target"
-                chown pi:pi "$bind_target"
-                if mount --bind "$music_mount" "$bind_target" 2>/dev/null; then
-                    chown -R pi:pi "$bind_target" 2>/dev/null || true
-                    chmod -R 755 "$bind_target" 2>/dev/null || true
-                    echo "$(date): Created bind mount: $music_mount -> $bind_target"
-                fi
-            fi
-            break
-        fi
-    done
-    
-    # Handle PLAY_CARD USB drives
-    for playcard_mount in /media/pi/PLAY_CARD*; do
-        if mountpoint -q "$playcard_mount" 2>/dev/null; then
-            bind_target="/home/pi/usb/playcard"
-            if ! mountpoint -q "$bind_target" 2>/dev/null; then
-                mkdir -p "$bind_target"
-                chown pi:pi "$bind_target"
-                if mount --bind "$playcard_mount" "$bind_target" 2>/dev/null; then
-                    chown -R pi:pi "$bind_target" 2>/dev/null || true
-                    chmod -R 755 "$bind_target" 2>/dev/null || true
-                    echo "$(date): Created bind mount: $playcard_mount -> $bind_target"
-                fi
-            fi
-            break
-        fi
-    done
-    
-    # Clean up stale bind mounts
-    if mountpoint -q "/home/pi/usb/music" 2>/dev/null; then
-        music_exists=false
-        for music_mount in /media/pi/MUSIC*; do
-            if mountpoint -q "$music_mount" 2>/dev/null; then
-                music_exists=true
-                break
-            fi
-        done
-        if [ "$music_exists" = false ]; then
-            umount "/home/pi/usb/music" 2>/dev/null || true
-            echo "$(date): Removed stale bind mount: /home/pi/usb/music"
-        fi
-    fi
-    
-    if mountpoint -q "/home/pi/usb/playcard" 2>/dev/null; then
-        playcard_exists=false
-        for playcard_mount in /media/pi/PLAY_CARD*; do
-            if mountpoint -q "$playcard_mount" 2>/dev/null; then
-                playcard_exists=true
-                break
-            fi
-        done
-        if [ "$playcard_exists" = false ]; then
-            umount "/home/pi/usb/playcard" 2>/dev/null || true
-            echo "$(date): Removed stale bind mount: /home/pi/usb/playcard"
-        fi
-    fi
-    
-    sleep 3
-done
-EOL
-
-sudo chmod +x /usr/local/bin/usb-bind-mount-monitor.sh
-
-# Create systemd service for USB monitoring
-sudo tee /etc/systemd/system/usb-bind-mount-monitor.service > /dev/null << 'EOL'
-[Unit]
-Description=USB Bind Mount Monitor for Music Player
-After=graphical.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/usb-bind-mount-monitor.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOL
+# Configure audio system
+sudo usermod -aG audio $USER
+systemctl --user enable pulseaudio 2>/dev/null || true
+systemctl --user start pulseaudio 2>/dev/null || true
 
 # Create native music player service
 print_status "Creating native systemd service..."
 sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
 [Unit]
 Description=USB Music Player
-After=graphical.target usb-bind-mount-monitor.service pulseaudio.service
-Wants=usb-bind-mount-monitor.service
+After=graphical.target pulseaudio.service
 
 [Service]
 Type=simple
@@ -272,20 +181,13 @@ RestartSec=10
 WantedBy=multi-user.target
 EOL
 
-# Configure audio system
-sudo usermod -aG audio $USER
-systemctl --user enable pulseaudio 2>/dev/null || true
-systemctl --user start pulseaudio 2>/dev/null || true
-
 print_status "✅ Native services configured"
 
 print_step "6/6 - Starting Native Services"
 
 print_status "Enabling and starting services..."
 sudo systemctl daemon-reload
-sudo systemctl enable usb-bind-mount-monitor.service
 sudo systemctl enable usb-music-player.service
-sudo systemctl start usb-bind-mount-monitor.service
 sudo systemctl start usb-music-player.service
 
 # Wait a moment and check status

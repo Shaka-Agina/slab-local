@@ -163,111 +163,13 @@ fi
 
 print_step "4/7 - Setting Up USB Auto-mounting"
 
-print_status "Configuring USB auto-mounting system..."
+print_status "USB drives will be auto-mounted by desktop environment to /media/pi/"
+print_status "Adding user to plugdev group for USB access permissions..."
 
-# Create USB directories
-mkdir -p /home/pi/usb
-chown -R pi:pi /home/pi/usb
+# Add user to plugdev group for USB access
+sudo usermod -aG plugdev $USER
 
-# Create bind mount monitoring service
-print_status "Installing USB bind mount service..."
-sudo tee /usr/local/bin/usb-bind-mount-monitor.sh > /dev/null << 'EOL'
-#!/bin/bash
-# Monitor and create bind mounts for USB drives with proper permissions
-
-mkdir -p /home/pi/usb
-chown -R pi:pi /home/pi/usb
-
-while true; do
-    # Handle MUSIC USB drives
-    for music_mount in /media/pi/MUSIC*; do
-        if mountpoint -q "$music_mount" 2>/dev/null; then
-            bind_target="/home/pi/usb/music"
-            if ! mountpoint -q "$bind_target" 2>/dev/null; then
-                mkdir -p "$bind_target"
-                chown pi:pi "$bind_target"
-                if mount --bind "$music_mount" "$bind_target" 2>/dev/null; then
-                    chown -R pi:pi "$bind_target" 2>/dev/null || true
-                    chmod -R 755 "$bind_target" 2>/dev/null || true
-                    echo "$(date): Created bind mount: $music_mount -> $bind_target"
-                fi
-            fi
-            break
-        fi
-    done
-    
-    # Handle PLAY_CARD USB drives
-    for playcard_mount in /media/pi/PLAY_CARD*; do
-        if mountpoint -q "$playcard_mount" 2>/dev/null; then
-            bind_target="/home/pi/usb/playcard"
-            if ! mountpoint -q "$bind_target" 2>/dev/null; then
-                mkdir -p "$bind_target"
-                chown pi:pi "$bind_target"
-                if mount --bind "$playcard_mount" "$bind_target" 2>/dev/null; then
-                    chown -R pi:pi "$bind_target" 2>/dev/null || true
-                    chmod -R 755 "$bind_target" 2>/dev/null || true
-                    echo "$(date): Created bind mount: $playcard_mount -> $bind_target"
-                fi
-            fi
-            break
-        fi
-    done
-    
-    # Clean up stale bind mounts
-    if mountpoint -q "/home/pi/usb/music" 2>/dev/null; then
-        music_exists=false
-        for music_mount in /media/pi/MUSIC*; do
-            if mountpoint -q "$music_mount" 2>/dev/null; then
-                music_exists=true
-                break
-            fi
-        done
-        if [ "$music_exists" = false ]; then
-            umount "/home/pi/usb/music" 2>/dev/null || true
-            echo "$(date): Removed stale bind mount: /home/pi/usb/music"
-        fi
-    fi
-    
-    if mountpoint -q "/home/pi/usb/playcard" 2>/dev/null; then
-        playcard_exists=false
-        for playcard_mount in /media/pi/PLAY_CARD*; do
-            if mountpoint -q "$playcard_mount" 2>/dev/null; then
-                playcard_exists=true
-                break
-            fi
-        done
-        if [ "$playcard_exists" = false ]; then
-            umount "/home/pi/usb/playcard" 2>/dev/null || true
-            echo "$(date): Removed stale bind mount: /home/pi/usb/playcard"
-        fi
-    fi
-    
-    sleep 3
-done
-EOL
-
-sudo chmod +x /usr/local/bin/usb-bind-mount-monitor.sh
-
-# Create systemd service for USB monitoring
-sudo tee /etc/systemd/system/usb-bind-mount-monitor.service > /dev/null << 'EOL'
-[Unit]
-Description=USB Bind Mount Monitor for Music Player
-After=graphical.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/usb-bind-mount-monitor.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOL
-
-sudo systemctl daemon-reload
-sudo systemctl enable usb-bind-mount-monitor.service
-sudo systemctl start usb-bind-mount-monitor.service
+print_status "No additional USB configuration needed for native deployment"
 
 print_step "5/7 - Setting Up Python Environment"
 
@@ -292,8 +194,7 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
     sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
 [Unit]
 Description=USB Music Player
-After=graphical.target usb-bind-mount-monitor.service pulseaudio.service
-Wants=usb-bind-mount-monitor.service
+After=graphical.target pulseaudio.service
 
 [Service]
 Type=simple

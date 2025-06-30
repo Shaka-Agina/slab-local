@@ -54,21 +54,22 @@ This will:
 
 ### Native Deployment (Recommended)
 ```
-USB Drive → Desktop Auto-mount → Bind Mount Service → Native Python App
-/media/pi/MUSIC* → /home/pi/usb/music (pi:pi permissions) → Direct Access
+USB Drive → Desktop Auto-mount → Direct Access by Python App
+/media/pi/MUSIC* → Direct Access (pi user permissions via groups)
 ```
 
 **Benefits:**
-- ✅ No USB permission issues
+- ✅ No USB permission issues (pi user in plugdev group)
 - ✅ Better audio performance  
 - ✅ Faster startup and operation
 - ✅ Easier debugging and development
 - ✅ Direct hardware access
+- ✅ Simplified architecture
 
 ### Docker Deployment (Legacy)
 ```
 USB Drive → Desktop Auto-mount → Docker Volume → Container App
-/media/pi/MUSIC* → Docker mount → Permission issues 😞
+/media/pi/MUSIC* → Docker mount → Permission complexity
 ```
 
 ## 📦 System Requirements
@@ -155,16 +156,17 @@ docker-compose down
 
 ### USB Drives Not Detected
 ```bash
-# Check if drives are mounted
+# Check if drives are mounted by desktop environment
 ls -la /media/pi/
 
-# Check bind mounts (native deployment)
-ls -la /home/pi/usb/
-mount | grep /home/pi/usb
+# Check USB permissions
+groups $USER  # Should include 'plugdev' group
 
-# Check bind mount service
-sudo systemctl status usb-bind-mount-monitor.service
-sudo journalctl -u usb-bind-mount-monitor.service -f
+# Check mount status
+mount | grep /media/pi
+
+# Monitor USB events
+sudo udevadm monitor --property --subsystem-match=block
 ```
 
 ### Audio Issues
@@ -182,12 +184,13 @@ pactl list short sinks
 
 ### Permission Issues
 ```bash
-# Native deployment - restart bind mount service
-sudo systemctl restart usb-bind-mount-monitor.service
+# Add user to plugdev group (if not already)
+sudo usermod -aG plugdev $USER
 
-# Check USB permissions
-ls -la /media/pi/
-ls -la /home/pi/usb/
+# Check current groups
+groups $USER
+
+# Logout and login again to apply group changes
 ```
 
 ### Service Won't Start
@@ -207,11 +210,11 @@ python app.py
 ## 📁 Directory Structure
 
 ```
-/media/pi/MUSIC           # Desktop auto-mount (root permissions)
-/media/pi/PLAY_CARD       # Desktop auto-mount (root permissions)
-/home/pi/usb/music        # Bind mount (pi permissions) ← App uses this
-/home/pi/usb/playcard     # Bind mount (pi permissions) ← App uses this
+/media/pi/MUSIC           # Desktop auto-mount → Direct access by app
+/media/pi/PLAY_CARD       # Desktop auto-mount → Direct access by app
 ```
+
+**Native deployment is much simpler!** No bind mounts or permission complexity.
 
 ## ⚙️ Configuration
 
