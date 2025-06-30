@@ -1,28 +1,17 @@
 #!/bin/bash
 
-# SLAB USB Music Player - Fully Native Installation Script
-# This script installs the music player with native USB detection only
+# One-Click USB Music Player Installer
+# Native deployment with Docker fallback option
 
 set -e
 
-# ANSI color codes
-RED='\033[0;31m'
+# Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-echo -e "${PURPLE}🎵 SLAB USB Music Player Installation${NC}"
-echo -e "${PURPLE}======================================${NC}"
-echo ""
-echo -e "${GREEN}✨ Using fully native USB detection${NC}"
-echo -e "${GREEN}✨ No bind mounts or complex mounting required${NC}"
-echo -e "${GREEN}✨ Works with desktop auto-mounting${NC}"
-echo ""
-
-# Function to print colored output
 print_status() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -35,333 +24,390 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+print_step() {
+    echo -e "\n${BLUE}=== $1 ===${NC}"
+}
+
+print_header() {
+    echo -e "${BLUE}"
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║              USB Music Player Installer                 ║"
+    echo "║                  Native Deployment                      ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
-    print_error "Please do not run this script as root/sudo"
+    print_error "Please run this script as a regular user (not root/sudo)"
+    print_status "Usage: ./install.sh"
     exit 1
 fi
 
-# Generate unique hotspot name based on last 4 characters of hostname
-HOSTNAME=$(hostname)
-LAST_4_CHARS=$(echo "$HOSTNAME" | tail -c 5)
-HOTSPOT_NAME="S L A B - $LAST_4_CHARS"
-HOTSPOT_PASSWORD="slabmusic"
+print_header
 
-print_status "Hotspot will be: $HOTSPOT_NAME (password: $HOTSPOT_PASSWORD)"
-
-# [1/6] System package installation
-echo ""
-echo -e "${CYAN}[1/6] Installing required system packages...${NC}"
-
-# Update package list
-sudo apt update
-
-# Install required packages
-sudo apt install -y \
-    docker.io \
-    docker-compose \
-    git \
-    python3 \
-    python3-pip \
-    hostapd \
-    dnsmasq \
-    iptables \
-    netfilter-persistent \
-    iptables-persistent \
-    avahi-daemon \
-    python3-pygame \
-    alsa-utils \
-    pulseaudio
-
-# [2/6] Docker setup
-echo ""
-echo -e "${CYAN}[2/6] Setting up Docker...${NC}"
-
-# Add user to docker group (requires logout/login or reboot to take effect)
-sudo usermod -aG docker $USER
-print_status "Added $USER user to docker group"
-
-# [3/6] Git configuration
-echo ""
-echo -e "${CYAN}[3/6] Configuring Git...${NC}"
-
-# Check if git is already configured
-if git config --global user.name >/dev/null 2>&1 && git config --global user.email >/dev/null 2>&1; then
-    print_status "Git already configured, skipping..."
-else
-    print_status "Setting up Git configuration..."
-    git config --global user.name "SLAB User"
-    git config --global user.email "slab@localhost"
-    print_status "Git configured with default values"
+# Check if we're on a Raspberry Pi
+if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
+    print_warning "This doesn't appear to be a Raspberry Pi"
+    read -p "Continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_status "Installation cancelled"
+        exit 0
+    fi
 fi
 
-# [4/6] Smart Wi-Fi hotspot setup
+# Offer deployment choice
 echo ""
-echo -e "${CYAN}[4/6] Setting up smart Wi-Fi hotspot...${NC}"
+print_status "Choose deployment method:"
+echo "1. Native (Recommended) - Direct host deployment, best performance, no USB permission issues"
+echo "2. Docker - Containerized deployment (legacy option)"
+echo ""
+read -p "Enter choice [1-2] (default: 1): " deployment_choice
+deployment_choice=${deployment_choice:-1}
 
-print_status "Hotspot will be: $HOTSPOT_NAME (password: $HOTSPOT_PASSWORD)"
+echo ""
+case $deployment_choice in
+    1)
+        print_status "Selected: Native deployment"
+        DEPLOYMENT_METHOD="native"
+        ;;
+    2)
+        print_status "Selected: Docker deployment"
+        DEPLOYMENT_METHOD="docker"
+        ;;
+    *)
+        print_error "Invalid choice. Using native deployment (recommended)"
+        DEPLOYMENT_METHOD="native"
+        ;;
+esac
 
-# Create auto-hotspot script that only activates when no internet
-sudo bash -c "cat > /usr/local/bin/auto-hotspot.sh << 'EOF'
+print_step "1/7 - System Check and Preparation"
+
+print_status "Checking system requirements..."
+# Check for required commands
+MISSING_DEPS=()
+for cmd in python3 git; do
+    if ! command -v $cmd >/dev/null 2>&1; then
+        MISSING_DEPS+=($cmd)
+    fi
+done
+
+if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+    print_warning "Missing dependencies: ${MISSING_DEPS[*]}"
+    print_status "Installing missing dependencies..."
+    sudo apt-get update -qq
+    sudo apt-get install -y ${MISSING_DEPS[*]}
+fi
+
+print_step "2/7 - Installing System Dependencies"
+
+print_status "Updating package list..."
+sudo apt-get update -qq
+
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    print_status "Installing dependencies for native deployment..."
+    sudo apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-venv \
+        pulseaudio \
+        pulseaudio-utils \
+        alsa-utils \
+        udisks2 \
+        exfat-fuse \
+        exfatprogs \
+        curl \
+        git \
+        build-essential \
+        python3-dev \
+        libasound2-dev \
+        pkg-config
+else
+    print_status "Installing dependencies for Docker deployment..."
+    sudo apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-venv \
+        pulseaudio \
+        pulseaudio-utils \
+        alsa-utils \
+        udisks2 \
+        exfat-fuse \
+        exfatprogs \
+        curl \
+        git \
+        docker.io \
+        docker-compose
+        
+    # Add user to docker group
+    sudo usermod -aG docker $USER
+    print_warning "You may need to log out and back in for Docker group changes to take effect"
+fi
+
+print_step "3/7 - Setting Up Audio System"
+
+print_status "Configuring audio system..."
+# Ensure user is in audio group
+sudo usermod -aG audio $USER
+
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    # Configure PulseAudio for user session
+    systemctl --user enable pulseaudio 2>/dev/null || true
+    systemctl --user start pulseaudio 2>/dev/null || true
+fi
+
+print_step "4/7 - Setting Up USB Auto-mounting"
+
+print_status "Configuring USB auto-mounting system..."
+
+# Create USB directories
+mkdir -p /home/pi/usb
+chown -R pi:pi /home/pi/usb
+
+# Create bind mount monitoring service
+print_status "Installing USB bind mount service..."
+sudo tee /usr/local/bin/usb-bind-mount-monitor.sh > /dev/null << 'EOL'
 #!/bin/bash
+# Monitor and create bind mounts for USB drives with proper permissions
 
-# Auto-hotspot script - only activates when no internet connection
-LOG_FILE=\"/var/log/auto-hotspot.log\"
+mkdir -p /home/pi/usb
+chown -R pi:pi /home/pi/usb
 
-log_message() {
-    echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] \$1\" | sudo tee -a \"\$LOG_FILE\"
-}
-
-# Check if we have internet connectivity
-check_internet() {
-    # Try multiple reliable endpoints
-    for host in 8.8.8.8 1.1.1.1 google.com; do
-        if ping -c 1 -W 5 \$host >/dev/null 2>&1; then
-            return 0  # Internet available
+while true; do
+    # Handle MUSIC USB drives
+    for music_mount in /media/pi/MUSIC*; do
+        if mountpoint -q "$music_mount" 2>/dev/null; then
+            bind_target="/home/pi/usb/music"
+            if ! mountpoint -q "$bind_target" 2>/dev/null; then
+                mkdir -p "$bind_target"
+                chown pi:pi "$bind_target"
+                if mount --bind "$music_mount" "$bind_target" 2>/dev/null; then
+                    chown -R pi:pi "$bind_target" 2>/dev/null || true
+                    chmod -R 755 "$bind_target" 2>/dev/null || true
+                    echo "$(date): Created bind mount: $music_mount -> $bind_target"
+                fi
+            fi
+            break
         fi
     done
-    return 1  # No internet
-}
-
-# Check if hotspot is currently active
-hotspot_active() {
-    systemctl is-active --quiet hostapd
-}
-
-# Start hotspot
-start_hotspot() {
-    log_message \"Starting hotspot mode...\"
     
-    # Stop dhcpcd on wlan0
-    sudo systemctl stop dhcpcd
+    # Handle PLAY_CARD USB drives
+    for playcard_mount in /media/pi/PLAY_CARD*; do
+        if mountpoint -q "$playcard_mount" 2>/dev/null; then
+            bind_target="/home/pi/usb/playcard"
+            if ! mountpoint -q "$bind_target" 2>/dev/null; then
+                mkdir -p "$bind_target"
+                chown pi:pi "$bind_target"
+                if mount --bind "$playcard_mount" "$bind_target" 2>/dev/null; then
+                    chown -R pi:pi "$bind_target" 2>/dev/null || true
+                    chmod -R 755 "$bind_target" 2>/dev/null || true
+                    echo "$(date): Created bind mount: $playcard_mount -> $bind_target"
+                fi
+            fi
+            break
+        fi
+    done
     
-    # Configure static IP for hotspot
-    sudo ip addr add 192.168.4.1/24 dev wlan0
-    
-    # Start services
-    sudo systemctl start dnsmasq
-    sudo systemctl start hostapd
-    
-    # Enable IP forwarding and NAT (if ethernet available)
-    echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward >/dev/null
-    sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE 2>/dev/null || true
-    sudo iptables -A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
-    sudo iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT 2>/dev/null || true
-    
-    log_message \"Hotspot started: $HOTSPOT_NAME\"
-}
-
-# Stop hotspot
-stop_hotspot() {
-    log_message \"Stopping hotspot mode...\"
-    
-    # Stop services
-    sudo systemctl stop hostapd 2>/dev/null || true
-    sudo systemctl stop dnsmasq 2>/dev/null || true
-    
-    # Clear iptables rules
-    sudo iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE 2>/dev/null || true
-    sudo iptables -D FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
-    sudo iptables -D FORWARD -i wlan0 -o eth0 -j ACCEPT 2>/dev/null || true
-    
-    # Remove static IP
-    sudo ip addr del 192.168.4.1/24 dev wlan0 2>/dev/null || true
-    
-    # Restart dhcpcd to restore normal networking
-    sudo systemctl start dhcpcd
-    
-    log_message \"Hotspot stopped, normal networking restored\"
-}
-
-# Main logic
-if check_internet; then
-    if hotspot_active; then
-        log_message \"Internet restored, switching back to normal mode\"
-        stop_hotspot
-    else
-        log_message \"Internet available, hotspot not needed\"
+    # Clean up stale bind mounts
+    if mountpoint -q "/home/pi/usb/music" 2>/dev/null; then
+        music_exists=false
+        for music_mount in /media/pi/MUSIC*; do
+            if mountpoint -q "$music_mount" 2>/dev/null; then
+                music_exists=true
+                break
+            fi
+        done
+        if [ "$music_exists" = false ]; then
+            umount "/home/pi/usb/music" 2>/dev/null || true
+            echo "$(date): Removed stale bind mount: /home/pi/usb/music"
+        fi
     fi
-else
-    if ! hotspot_active; then
-        log_message \"No internet detected, activating hotspot\"
-        start_hotspot
-    else
-        log_message \"No internet, hotspot already active\"
+    
+    if mountpoint -q "/home/pi/usb/playcard" 2>/dev/null; then
+        playcard_exists=false
+        for playcard_mount in /media/pi/PLAY_CARD*; do
+            if mountpoint -q "$playcard_mount" 2>/dev/null; then
+                playcard_exists=true
+                break
+            fi
+        done
+        if [ "$playcard_exists" = false ]; then
+            umount "/home/pi/usb/playcard" 2>/dev/null || true
+            echo "$(date): Removed stale bind mount: /home/pi/usb/playcard"
+        fi
     fi
-fi
-EOF"
+    
+    sleep 3
+done
+EOL
 
-sudo chmod +x /usr/local/bin/auto-hotspot.sh
+sudo chmod +x /usr/local/bin/usb-bind-mount-monitor.sh
 
-# Configure hostapd
-sudo bash -c "cat > /etc/hostapd/hostapd.conf << EOF
-interface=wlan0
-driver=nl80211
-ssid=$HOTSPOT_NAME
-hw_mode=g
-channel=7
-wmm_enabled=0
-macaddr_acl=0
-auth_algs=1
-ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=$HOTSPOT_PASSWORD
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
-rsn_pairwise=CCMP
-EOF"
-
-# Configure dnsmasq for hotspot
-sudo bash -c "cat > /etc/dnsmasq.conf << EOF
-# SLAB Music Player hotspot configuration
-interface=wlan0
-dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
-domain=slab.local
-address=/slab.local/192.168.4.1
-EOF"
-
-# Set hostapd configuration path
-sudo bash -c 'echo "DAEMON_CONF=\"/etc/hostapd/hostapd.conf\"" >> /etc/default/hostapd'
-
-# Create systemd timer for auto-hotspot (checks every 30 seconds)
-sudo bash -c "cat > /etc/systemd/system/auto-hotspot.timer << EOF
+# Create systemd service for USB monitoring
+sudo tee /etc/systemd/system/usb-bind-mount-monitor.service > /dev/null << 'EOL'
 [Unit]
-Description=Auto-hotspot check timer
-Requires=auto-hotspot.service
-
-[Timer]
-OnBootSec=60
-OnUnitActiveSec=30
-
-[Install]
-WantedBy=timers.target
-EOF"
-
-sudo bash -c "cat > /etc/systemd/system/auto-hotspot.service << EOF
-[Unit]
-Description=Auto-hotspot check service
-After=network.target
+Description=USB Bind Mount Monitor for Music Player
+After=graphical.target
 
 [Service]
-Type=oneshot
-ExecStart=/usr/local/bin/auto-hotspot.sh
-EOF"
-
-# Enable timer (but don't start hostapd/dnsmasq directly)
-sudo systemctl daemon-reload
-sudo systemctl enable auto-hotspot.timer
-sudo systemctl disable hostapd 2>/dev/null || true
-sudo systemctl disable dnsmasq 2>/dev/null || true
-
-print_status "✅ Smart hotspot configured - will only activate when no internet connection"
-
-# [5/6] Native USB detection setup
-echo ""
-echo -e "${CYAN}[5/6] Setting up native USB detection...${NC}"
-
-print_status "Configuring native USB detection for desktop auto-mounting"
-
-# Ensure /media/pi directory exists for auto-mounting
-sudo mkdir -p /media/pi
-
-# Create udev rules for better USB handling (optional enhancement)
-sudo bash -c "cat > /etc/udev/rules.d/99-usb-permissions.rules << EOF
-# Set proper permissions for USB drives
-SUBSYSTEM==\"block\", ATTRS{idVendor}==\"*\", ACTION==\"add\", RUN+=\"/bin/chown pi:pi /media/pi/*\"
-EOF"
-
-sudo udevadm control --reload-rules
-
-print_status "✅ Native USB detection configured - uses desktop auto-mounting in /media/pi/"
-
-# [6/6] Docker service setup
-echo ""
-echo -e "${CYAN}[6/6] Setting up Docker service for boot launch...${NC}"
-
-CURRENT_DIR=$(pwd)
-
-# Create Docker startup script
-sudo bash -c "cat > /usr/local/bin/start_music_player.sh << EOF
-#!/bin/bash
-cd $CURRENT_DIR
-echo \"Starting music player...\"
-docker-compose down 2>/dev/null || true
-docker-compose up -d
-EOF"
-sudo chmod +x /usr/local/bin/start_music_player.sh
-
-# Create systemd service for music player
-sudo bash -c "cat > /etc/systemd/system/music-player-docker.service << EOF
-[Unit]
-Description=USB Music Player Docker Service
-After=docker.service auto-hotspot.service
-Requires=docker.service
-Wants=auto-hotspot.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/bin/start_music_player.sh
-ExecStop=$CURRENT_DIR/docker-compose down
-WorkingDirectory=$CURRENT_DIR
+Type=simple
+User=root
+ExecStart=/usr/local/bin/usb-bind-mount-monitor.sh
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-EOF"
+EOL
 
-# Enable Docker and music player services
-print_status "Enabling Docker and music player services..."
 sudo systemctl daemon-reload
-sudo systemctl enable docker
-sudo systemctl enable music-player-docker.service
+sudo systemctl enable usb-bind-mount-monitor.service
+sudo systemctl start usb-bind-mount-monitor.service
 
-# Build the Docker image
-print_status "Building Docker image..."
-docker-compose build
+print_step "5/7 - Setting Up Python Environment"
 
-# Create config and logs directories
-mkdir -p config logs
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    print_status "Creating Python virtual environment..."
+    python3 -m venv venv
+    source venv/bin/activate
+    
+    print_status "Installing Python dependencies..."
+    pip install --upgrade pip
+    pip install flask pygame mutagen
+    
+    print_status "Python environment ready"
+else
+    print_status "Skipping Python setup for Docker deployment"
+fi
 
-# Final success message
+print_step "6/7 - Creating Application Service"
+
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    print_status "Creating native systemd service..."
+    sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
+[Unit]
+Description=USB Music Player
+After=graphical.target usb-bind-mount-monitor.service pulseaudio.service
+Wants=usb-bind-mount-monitor.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=$PWD
+Environment=PATH=$PWD/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONPATH=$PWD
+Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+Environment=CONTROL_FILE_NAME=playMusic.txt
+Environment=WEB_PORT=5000
+Environment=DEFAULT_VOLUME=70
+ExecStart=$PWD/venv/bin/python $PWD/app.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable usb-music-player.service
+else
+    print_status "Docker service will be managed via docker-compose"
+fi
+
+print_step "7/7 - Starting Services"
+
+# Create required directories
+print_status "Creating configuration directories..."
+mkdir -p ./config
+mkdir -p ./logs
+chown -R pi:pi ./config ./logs
+
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    print_status "Starting native music player service..."
+    sudo systemctl start usb-music-player.service
+    
+    # Wait a moment and check status
+    sleep 3
+    if systemctl is-active --quiet usb-music-player.service; then
+        print_status "✅ Native service started successfully"
+    else
+        print_warning "Service may have issues. Check logs with: sudo journalctl -u usb-music-player.service -f"
+    fi
+else
+    print_status "Building and starting Docker containers..."
+    docker-compose build
+    docker-compose up -d
+    
+    # Wait a moment and check status
+    sleep 5
+    if docker-compose ps | grep -q "Up"; then
+        print_status "✅ Docker containers started successfully"
+    else
+        print_warning "Containers may have issues. Check logs with: docker-compose logs -f"
+    fi
+fi
+
+# Final output
 echo ""
-echo -e "${PURPLE}🎉 Installation Complete! 🎉${NC}"
-echo -e "${PURPLE}==================================${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                 Installation Complete!                  ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${GREEN}✅ NATIVE USB DETECTION:${NC}"
-echo -e "${GREEN}• Uses desktop auto-mounting in /media/pi/${NC}"
-echo -e "${GREEN}• No complex bind mounts or services required${NC}"
-echo -e "${GREEN}• Plug and play - USB drives are detected automatically${NC}"
+
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    echo -e "${BLUE}🎵 Native USB Music Player Setup Complete!${NC}"
+    echo ""
+    echo "🌐 Web Interface: http://$(hostname -I | awk '{print $1}'):5000"
+    echo ""
+    echo "🔧 Service Management:"
+    echo "• Status: sudo systemctl status usb-music-player.service"
+    echo "• Logs: sudo journalctl -u usb-music-player.service -f"
+    echo "• Restart: sudo systemctl restart usb-music-player.service"
+    echo "• Stop: sudo systemctl stop usb-music-player.service"
+    echo ""
+    echo "🔧 Development Mode:"
+    echo "• cd $PWD"
+    echo "• source venv/bin/activate"
+    echo "• python app.py"
+    echo ""
+else
+    echo -e "${BLUE}🐳 Docker USB Music Player Setup Complete!${NC}"
+    echo ""
+    echo "🌐 Web Interface: http://$(hostname -I | awk '{print $1}'):5000"
+    echo ""
+    echo "🔧 Service Management:"
+    echo "• Status: docker-compose ps"
+    echo "• Logs: docker-compose logs -f"
+    echo "• Restart: docker-compose restart"
+    echo "• Stop: docker-compose down"
+    echo ""
+fi
+
+echo "🔌 USB Setup:"
+echo "1. Label USB drives as 'MUSIC' and 'PLAY_CARD'"
+echo "2. Insert drives - they'll auto-mount to /media/pi/"
+echo "3. Bind mounts will be created at /home/pi/usb/ with proper permissions"
+echo "4. Create 'playMusic.txt' on PLAY_CARD drive to control playback"
 echo ""
-echo -e "${GREEN}✅ SAFE NETWORK CONFIGURATION:${NC}"
-echo -e "${GREEN}• Your existing network configuration has been PRESERVED${NC}"
-echo -e "${GREEN}• Hotspot will ONLY activate when no internet connection is available${NC}"
-echo -e "${GREEN}• SSH access will NOT be disrupted${NC}"
+
+echo "🎛️ Control Files (create on PLAY_CARD USB):"
+echo "• playMusic.txt - Start/stop playback"
+echo "• nextTrack.txt - Skip to next track"  
+echo "• prevTrack.txt - Previous track"
+echo "• volumeUp.txt - Increase volume"
+echo "• volumeDown.txt - Decrease volume"
 echo ""
-echo -e "${CYAN}🔧 HOTSPOT DETAILS:${NC}"
-echo -e "${CYAN}• Name: $HOTSPOT_NAME${NC}"
-echo -e "${CYAN}• Password: $HOTSPOT_PASSWORD${NC}"
-echo -e "${CYAN}• Only activates when no internet connection${NC}"
+
+if [ "$DEPLOYMENT_METHOD" = "native" ]; then
+    echo "✨ Benefits of Native Deployment:"
+    echo "• No USB permission issues"
+    echo "• Better audio performance"
+    echo "• Faster startup and operation"
+    echo "• Easier debugging and development"
+    echo "• Direct hardware access"
+fi
+
 echo ""
-echo -e "${BLUE}🎵 MUSIC PLAYER ACCESS:${NC}"
-echo -e "${BLUE}• Normal network: http://slab.local:5000 or http://[your-pi-ip]:5000${NC}"
-echo -e "${BLUE}• Hotspot mode: http://192.168.4.1:5000 or http://slab.local:5000${NC}"
-echo ""
-echo -e "${YELLOW}📱 USB DRIVES:${NC}"
-echo -e "${YELLOW}• Label music USB as 'MUSIC' or include audio files${NC}"
-echo -e "${YELLOW}• Label control USB as 'PLAY_CARD' or include control.txt${NC}"
-echo -e "${YELLOW}• Drives auto-mount in /media/pi/ and are detected automatically${NC}"
-echo ""
-echo -e "${CYAN}⚙️  MANUAL CONTROL:${NC}"
-echo -e "${CYAN}• Start music player: sudo systemctl start music-player-docker.service${NC}"
-echo -e "${CYAN}• Stop music player: sudo systemctl stop music-player-docker.service${NC}"
-echo -e "${CYAN}• Check hotspot status: sudo systemctl status auto-hotspot.timer${NC}"
-echo -e "${CYAN}• View hotspot logs: sudo tail -f /var/log/auto-hotspot.log${NC}"
-echo -e "${CYAN}• Manual hotspot check: sudo /usr/local/bin/auto-hotspot.sh${NC}"
-echo ""
-echo -e "${GREEN}🔄 NEXT STEPS:${NC}"
-echo -e "${GREEN}1. Reboot your Raspberry Pi: sudo reboot${NC}"
-echo -e "${GREEN}2. Insert your USB drives (they'll auto-mount in /media/pi/)${NC}"
-echo -e "${GREEN}3. Access the web interface using the URLs above${NC}"
-echo -e "${GREEN}4. Test native USB detection: python3 test-native-usb.py${NC}"
-echo ""
-echo -e "${PURPLE}Your SSH access and existing network configuration are preserved!${NC}" 
+print_status "Installation complete! Insert your USB drives and enjoy your music! 🎵" 

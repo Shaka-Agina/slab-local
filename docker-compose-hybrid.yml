@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # USB Manager Service - handles USB detection and creates Docker-friendly mounts
+  usb-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.usb-manager
+    container_name: usb-manager
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /media/pi:/media/pi:ro
+      - /shared/usb:/shared/usb:rw
+      - /run/udev:/run/udev:ro
+      - /dev/bus/usb:/dev/bus/usb:rw
+    environment:
+      - USB_MOUNT_PATH=/shared/usb
+      - MUSIC_USB_LABEL=MUSIC
+      - CONTROL_USB_LABEL=PLAY_CARD
+    cap_add:
+      - SYS_ADMIN
+
+  # Main Music Player Application - uses Docker-friendly USB mounts
+  music-player:
+    build: .
+    container_name: usb-music-player
+    restart: unless-stopped
+    depends_on:
+      - usb-manager
+    network_mode: host
+    
+    environment:
+      - CONTROL_FILE_NAME=playMusic.txt
+      - WEB_PORT=5000
+      - DEFAULT_VOLUME=70
+      - PULSE_RUNTIME_PATH=/run/user/1000/pulse
+      - MUSIC_USB_MOUNT=/shared/usb/music
+      - CONTROL_USB_MOUNT=/shared/usb/playcard
+    
+    volumes:
+      # Docker-friendly USB access via USB manager
+      - /shared/usb:/shared/usb:ro
+      
+      # Audio system access
+      - /run/user/1000/pulse:/run/user/1000/pulse:rw
+      - /dev/snd:/dev/snd:rw
+      
+      # Configuration and logs
+      - ./config:/app/config:rw
+      - ./logs:/app/logs:rw
+    
+    devices:
+      - /dev/snd
+        
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  shared-usb:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /shared/usb 
