@@ -111,6 +111,8 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
         python3 \
         python3-pip \
         python3-venv \
+        vlc \
+        python3-vlc \
         pulseaudio \
         pulseaudio-utils \
         alsa-utils \
@@ -129,6 +131,8 @@ else
         python3 \
         python3-pip \
         python3-venv \
+        vlc \
+        python3-vlc \
         pulseaudio \
         pulseaudio-utils \
         alsa-utils \
@@ -274,7 +278,7 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
     
     print_status "Installing Python dependencies..."
     pip install --upgrade pip
-    pip install flask pygame mutagen
+    pip install flask werkzeug flask-cors python-vlc mutagen
     
     print_status "Python environment ready"
 else

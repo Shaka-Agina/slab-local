@@ -1,5 +1,5 @@
 python-vlc==3.0.18122
-Flask==2.0.1
-Werkzeug==2.0.1
-Flask-CORS==3.0.10
-mutagen==1.46.0 
+Flask==2.3.3
+Werkzeug==2.3.7
+Flask-CORS==4.0.0
+mutagen==1.47.0 
