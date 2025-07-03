@@ -101,6 +101,10 @@ class MusicPlayer:
                 log_message("Control source disconnected")
                 # Stop monitoring control file
                 self.stop_control_monitoring()
+                # FIXED: Stop playback when control USB is disconnected
+                if self.is_playing():
+                    log_message("Stopping playback due to control USB disconnection")
+                    self.stop_playback()
     
     def start_control_monitoring(self):
         """Start monitoring the control file for changes"""
@@ -111,6 +115,9 @@ class MusicPlayer:
         self.control_monitor_thread = threading.Thread(target=self._control_monitor_loop, daemon=True)
         self.control_monitor_thread.start()
         log_message("Started control file monitoring")
+        
+        # FIXED: Process any existing control file immediately on mount
+        self._process_existing_control_file()
     
     def stop_control_monitoring(self):
         """Stop monitoring the control file"""
@@ -178,6 +185,25 @@ class MusicPlayer:
                 
         except Exception as e:
             log_message(f"Error processing control file: {str(e)}")
+    
+    def _process_existing_control_file(self):
+        """Process existing control file immediately when control source is set"""
+        if not self.control_source:
+            return
+            
+        try:
+            control_file_path = os.path.join(self.control_source, CONTROL_FILE_NAME)
+            
+            if os.path.exists(control_file_path):
+                log_message("Processing existing control file on mount...")
+                # Reset the last modified time to ensure processing
+                self.control_file_last_modified = 0
+                # Process the file
+                self._process_control_file(control_file_path)
+            else:
+                log_message(f"No control file found at: {control_file_path}")
+        except Exception as e:
+            log_message(f"Error processing existing control file: {str(e)}")
     
     def play_album(self, album_name):
         """Play an album by name"""
