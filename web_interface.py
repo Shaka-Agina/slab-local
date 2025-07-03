@@ -191,33 +191,41 @@ def create_app(music_player, usb_monitor):
 
     @app.route('/api/toggle_play_pause', methods=['POST'])
     def toggle_play_pause():
-        """Toggle play/pause - only works if control USB is present"""
-        if app.music_player.control_source:
-            app.music_player.toggle_play_pause()
-            return jsonify({'success': True})
-        else:
-            log_message("Play/Pause toggle ignored: No PLAY_CARD present")
-            return jsonify({'success': False, 'error': 'No control USB present'})
+        """Toggle play/pause - works with or without control USB"""
+        app.music_player.toggle_play_pause()
+        return jsonify({'success': True})
+
+    @app.route('/api/restart_playback', methods=['POST'])
+    def restart_playback():
+        """Restart playback from current track"""
+        try:
+            if app.music_player.current_album_tracks and app.music_player.current_track_index >= 0:
+                # Restart the current track
+                success = app.music_player._play_track_at_index(app.music_player.current_track_index)
+                if success:
+                    log_message("Playback restarted")
+                    return jsonify({'success': True})
+                else:
+                    log_message("Failed to restart playback")
+                    return jsonify({'success': False, 'error': 'Failed to restart track'})
+            else:
+                log_message("No track to restart")
+                return jsonify({'success': False, 'error': 'No current track to restart'})
+        except Exception as e:
+            log_message(f"Error restarting playback: {str(e)}")
+            return jsonify({'success': False, 'error': str(e)})
 
     @app.route('/api/next_track', methods=['POST'])
     def next_track():
-        """Skip to next track - only works if control USB is present"""
-        if app.music_player.control_source:
-            app.music_player.next_track()
-            return jsonify({'success': True})
-        else:
-            log_message("Next track ignored: No PLAY_CARD present")
-            return jsonify({'success': False, 'error': 'No control USB present'})
+        """Skip to next track - works with or without control USB"""
+        app.music_player.next_track()
+        return jsonify({'success': True})
 
     @app.route('/api/prev_track', methods=['POST'])
     def prev_track():
-        """Skip to previous track - only works if control USB is present"""
-        if app.music_player.control_source:
-            app.music_player.previous_track()
-            return jsonify({'success': True})
-        else:
-            log_message("Previous track ignored: No PLAY_CARD present")
-            return jsonify({'success': False, 'error': 'No control USB present'})
+        """Skip to previous track - works with or without control USB"""
+        app.music_player.previous_track()
+        return jsonify({'success': True})
 
     @app.route('/api/set_volume/<int:volume>', methods=['POST'])
     def set_volume(volume):

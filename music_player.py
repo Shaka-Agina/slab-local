@@ -396,11 +396,53 @@ class MusicPlayer:
             if self.media_player.get_state() == vlc.State.Paused:
                 self.media_player.play()
                 log_message("Playback resumed")
-            elif not self.is_playing() and self.current_album_tracks:
-                # Resume from current track
-                self._play_track_at_index(self.current_track_index)
+            elif not self.is_playing():
+                # If we have tracks loaded, try to resume from current track
+                if self.current_album_tracks and self.current_track_index >= 0:
+                    log_message("Resuming from current track")
+                    self._play_track_at_index(self.current_track_index)
+                # If no tracks but we have a music source, try to load default album
+                elif self.music_source and os.path.exists(self.music_source):
+                    log_message("No tracks loaded, attempting to load default album from music source")
+                    self._load_default_album()
+                else:
+                    log_message("Cannot resume: No tracks available and no music source")
         except Exception as e:
             log_message(f"Error resuming playback: {str(e)}")
+    
+    def _load_default_album(self):
+        """Load the first available album from music source"""
+        try:
+            if not self.music_source or not os.path.exists(self.music_source):
+                log_message("No valid music source available")
+                return False
+            
+            # Look for the first directory with music files
+            for root, dirs, files in os.walk(self.music_source):
+                # Check if this directory has audio files
+                audio_files = []
+                for file in files:
+                    if file.lower().endswith(('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')):
+                        if self._is_valid_audio_file(file):
+                            audio_files.append(os.path.join(root, file))
+                
+                if audio_files:
+                    # Found a directory with music, load it as default
+                    self.current_album = os.path.basename(root) or "Default Album"
+                    self.current_album_folder = root
+                    self.current_album_tracks = sorted(audio_files)
+                    self.current_track_index = 0
+                    self.single_track_mode = False
+                    
+                    log_message(f"Loaded default album '{self.current_album}' with {len(audio_files)} tracks")
+                    return self._play_track_at_index(0)
+            
+            log_message("No audio files found in music source")
+            return False
+            
+        except Exception as e:
+            log_message(f"Error loading default album: {str(e)}")
+            return False
     
     def stop_playback(self):
         """Stop current playback"""
