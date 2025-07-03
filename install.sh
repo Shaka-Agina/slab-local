@@ -113,8 +113,6 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
         python3-venv \
         vlc \
         python3-vlc \
-        pulseaudio \
-        pulseaudio-utils \
         alsa-utils \
         udisks2 \
         exfat-fuse \
@@ -133,8 +131,6 @@ else
         python3-venv \
         vlc \
         python3-vlc \
-        pulseaudio \
-        pulseaudio-utils \
         alsa-utils \
         udisks2 \
         exfat-fuse \
@@ -151,21 +147,17 @@ fi
 
 print_step "3/7 - Setting Up Audio System"
 
-print_status "Configuring audio system..."
+print_status "Configuring ALSA audio system (no PulseAudio)..."
 # Ensure user is in audio group
 sudo usermod -aG audio $USER
 
 if [ "$DEPLOYMENT_METHOD" = "native" ]; then
-    # Configure PulseAudio for user session
-    systemctl --user enable pulseaudio 2>/dev/null || true
-    systemctl --user start pulseaudio 2>/dev/null || true
-    
-    # Run audio optimization setup
-    print_status "Optimizing audio configuration for music playback..."
+    # Run audio optimization setup (ALSA only)
+    print_status "Optimizing ALSA configuration for music playback..."
     if [ -f "fix-audio-setup.sh" ]; then
         chmod +x fix-audio-setup.sh
         ./fix-audio-setup.sh
-        print_status "✅ Audio system optimized"
+        print_status "✅ ALSA audio system optimized"
     else
         print_warning "Audio optimization script not found, skipping..."
     fi
@@ -204,7 +196,7 @@ if [ "$DEPLOYMENT_METHOD" = "native" ]; then
     sudo tee /etc/systemd/system/usb-music-player.service > /dev/null << EOL
 [Unit]
 Description=USB Music Player
-After=graphical.target pulseaudio.service
+After=graphical.target
 
 [Service]
 Type=simple
@@ -213,7 +205,6 @@ Group=pi
 WorkingDirectory=$PWD
 Environment=PATH=$PWD/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONPATH=$PWD
-Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
 Environment=CONTROL_FILE_NAME=playMusic.txt
 Environment=WEB_PORT=5000
 Environment=DEFAULT_VOLUME=70

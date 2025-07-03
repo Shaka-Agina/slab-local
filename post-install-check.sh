@@ -83,14 +83,22 @@ fi
 
 # Check PulseAudio
 if command -v pulseaudio >/dev/null 2>&1; then
-    print_ok "PulseAudio available"
+    print_warning "PulseAudio is installed"
     if pgrep -x "pulseaudio" > /dev/null; then
-        print_ok "PulseAudio is running"
+        print_warning "PulseAudio is running (should be stopped for best VLC performance)"
+        print_info "Run './fix-audio-setup.sh' to disable PulseAudio"
     else
-        print_warning "PulseAudio not running"
+        print_ok "PulseAudio is stopped (good for VLC)"
     fi
 else
-    print_warning "PulseAudio not installed"
+    print_ok "PulseAudio not installed (good for VLC)"
+fi
+
+# Check ALSA configuration
+if [ -f "$HOME/.asoundrc" ]; then
+    print_ok "ALSA configuration file exists"
+else
+    print_warning "ALSA configuration missing"
 fi
 
 echo ""

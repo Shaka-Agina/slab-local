@@ -1,7 +1,7 @@
 #!/bin/bash
 
-echo "🔧 Fixing Audio Setup for Music Player"
-echo "======================================"
+echo "🔧 Setting Up ALSA Audio (No PulseAudio)"
+echo "========================================"
 
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
@@ -23,58 +23,20 @@ echo "🔊 Current default audio output:"
 if command -v raspi-config >/dev/null 2>&1; then
     echo "   Use 'sudo raspi-config' -> Advanced Options -> Audio to change"
 else
-    echo "   /usr/bin/amixer sget PCM 2>/dev/null || echo 'PCM control not found'"
+    echo "   Current setting: $(cat /sys/module/snd_bcm2835/parameters/enable_hdmi 2>/dev/null || echo 'unknown')"
 fi
 
-# Check if PulseAudio is running
+# Stop PulseAudio if running (we don't want it)
 echo ""
-echo "🎵 PulseAudio status:"
+echo "🛑 Ensuring PulseAudio is not running..."
 if pgrep -x "pulseaudio" > /dev/null; then
-    echo "   ✅ PulseAudio is running"
-    echo "   🔧 Configuring PulseAudio for better buffering..."
-    
-    # Create or update PulseAudio configuration
-    PULSE_CONFIG="$HOME/.config/pulse"
-    mkdir -p "$PULSE_CONFIG"
-    
-    # Create daemon.conf for better buffering
-    cat > "$PULSE_CONFIG/daemon.conf" << 'EOF'
-# Custom PulseAudio configuration for music player
-default-sample-format = s16le
-default-sample-rate = 44100
-alternate-sample-rate = 48000
-default-sample-channels = 2
-default-channel-map = front-left,front-right
-
-# Buffer settings to prevent overflow
-default-fragments = 4
-default-fragment-size-msec = 25
-high-priority = yes
-nice-level = -11
-realtime-scheduling = no
-
-# Disable unnecessary modules
-load-sample-lazy = yes
-load-sample-dir-lazy = yes
-EOF
-    
-    echo "   ✅ Updated PulseAudio configuration"
-    
-    # Restart PulseAudio with new settings
-    echo "   🔄 Restarting PulseAudio..."
+    echo "   PulseAudio detected - stopping it..."
     pulseaudio --kill 2>/dev/null || true
-    sleep 2
-    pulseaudio --start --log-target=syslog 2>/dev/null || true
-    sleep 1
-    
-    if pgrep -x "pulseaudio" > /dev/null; then
-        echo "   ✅ PulseAudio restarted successfully"
-    else
-        echo "   ⚠️  PulseAudio restart failed, will use ALSA fallback"
-    fi
-    
+    systemctl --user disable pulseaudio 2>/dev/null || true
+    systemctl --user stop pulseaudio 2>/dev/null || true
+    echo "   ✅ PulseAudio stopped"
 else
-    echo "   ⚠️  PulseAudio not running - using ALSA directly"
+    echo "   ✅ PulseAudio not running (good!)"
 fi
 
 # Check ALSA configuration
@@ -120,36 +82,26 @@ else
     echo "   ⚠️  speaker-test not available"
 fi
 
-# Create ALSA configuration for better compatibility
+# Create ALSA configuration for direct hardware access
 echo ""
 echo "🔧 Creating optimized ALSA configuration..."
 
-# User-specific ALSA config
+# User-specific ALSA config (ALSA direct, no PulseAudio)
 cat > "$HOME/.asoundrc" << 'EOF'
-# Optimized ALSA configuration for music playback
+# Direct ALSA configuration for music playback (no PulseAudio)
 pcm.!default {
-    type pulse
-    fallback "sysdefault"
-    hint {
-        show on
-        description "Default ALSA Output (via PulseAudio)"
-    }
-}
-
-ctl.!default {
-    type pulse
-    fallback "sysdefault"
-}
-
-# Direct ALSA fallback
-pcm.sysdefault {
     type hw
     card 0
     device 0
 }
 
-# Dmix for software mixing if needed
-pcm.dmixer {
+ctl.!default {
+    type hw
+    card 0
+}
+
+# Dmix for software mixing if multiple apps need audio
+pcm.dmixed {
     type dmix
     ipc_key 1024
     slave {
@@ -158,21 +110,29 @@ pcm.dmixer {
         period_size 1024
         buffer_size 4096
         rate 44100
+        channels 2
     }
     bindings {
         0 0
         1 1
     }
 }
+
+# Use dmix for default if you need multiple audio apps
+# Uncomment the lines below if you experience "device busy" errors:
+#pcm.!default {
+#    type plug
+#    slave.pcm "dmixed"
+#}
 EOF
 
 echo "   ✅ ALSA configuration created"
 
 echo ""
 echo "🎯 Audio Configuration Summary:"
-echo "   ✅ VLC configured to use ALSA with optimized settings"
-echo "   ✅ PulseAudio configured with better buffering (if running)"
-echo "   ✅ ALSA fallback configuration created"
+echo "   ✅ VLC configured to use ALSA directly (no PulseAudio)"
+echo "   ✅ PulseAudio disabled to prevent conflicts"
+echo "   ✅ Direct hardware access for best performance"
 echo "   ✅ Audio levels set to reasonable defaults"
 echo ""
 echo "🔄 Restart your music player service:"
@@ -181,4 +141,5 @@ echo ""
 echo "💡 If you still get audio errors:"
 echo "   1. Try different audio output via 'sudo raspi-config'"
 echo "   2. Check USB power supply (underpowered Pi can cause audio issues)"
-echo "   3. Check logs: 'journalctl -u usb-music-player -f'" 
+echo "   3. Check logs: 'journalctl -u usb-music-player -f'"
+echo "   4. Verify no other apps are using audio" 
